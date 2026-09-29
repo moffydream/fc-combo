@@ -9,6 +9,7 @@ permissions:
   contents: write
   pages: write
   id-token: write
+  actions: write
 
 concurrency:
   group: collect
@@ -59,6 +60,14 @@ jobs:
         with:
           path: state
           key: state-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: 오래된 DB 캐시 정리
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh cache list --repo "$GITHUB_REPOSITORY" --key state- --sort created_at --order desc --limit 100 --json id --jq '.[3:][].id' \
+            | xargs -r -I{} gh cache delete {} --repo "$GITHUB_REPOSITORY"
 
       - name: 사이트 빌드
         run: python build_site.py --out site --min-games ${{ vars.MIN_GAMES || 20 }}
