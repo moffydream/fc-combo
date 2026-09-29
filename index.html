@@ -1,0 +1,419 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>감독모드 조합 분석</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=IBM+Plex+Sans+KR:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --board:#E8ECE5; --panel:#F7F9F5; --ink:#17221C; --muted:#5E6A62; --rule:#C8D0C6;
+  --turf:#D9E5DA; --chalk:#2E6A4C; --blue:#1D44B0; --blue-soft:#D6DEF5;
+  --red:#B8392D; --red-soft:#F3D9D5; --magnet:#E0A21A; --magnet-ink:#3A2A00;
+  --num:"Barlow Condensed","Arial Narrow",sans-serif;
+  --txt:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --board:#141B17; --panel:#1C2520; --ink:#E4EAE3; --muted:#98A59C; --rule:#34403A;
+  --turf:#1F3329; --chalk:#7FB597; --blue:#86A2F0; --blue-soft:#243457;
+  --red:#EE8577; --red-soft:#4A2622; --magnet:#F0B93A; --magnet-ink:#2A1E00;
+}}
+:root[data-theme="dark"]{
+  --board:#141B17; --panel:#1C2520; --ink:#E4EAE3; --muted:#98A59C; --rule:#34403A;
+  --turf:#1F3329; --chalk:#7FB597; --blue:#86A2F0; --blue-soft:#243457;
+  --red:#EE8577; --red-soft:#4A2622; --magnet:#F0B93A; --magnet-ink:#2A1E00;
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--board);color:var(--ink);font:15px/1.55 var(--txt)}
+button,input,select{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+
+header{display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:.5rem 1.5rem;
+  padding:1.25rem clamp(1rem,3vw,2rem) .5rem}
+h1{font:700 2rem/1 var(--num);letter-spacing:.01em;margin:0}
+#status{color:var(--muted);font-size:.85rem}
+
+.controls{display:flex;flex-wrap:wrap;gap:.75rem 1rem;align-items:end;
+  padding:.75rem clamp(1rem,3vw,2rem) 1rem;border-bottom:1px solid var(--rule)}
+.field{display:flex;flex-direction:column;gap:.2rem;font-size:.8rem;color:var(--muted)}
+.field input,.field select{background:var(--panel);border:1px solid var(--rule);border-radius:6px;
+  padding:.45rem .6rem;min-height:2.3rem;font-size:.92rem;color:var(--ink)}
+.field.small input{width:5.5rem}
+.search{position:relative;min-width:min(20rem,100%)}
+.search input{width:100%}
+#results{position:absolute;z-index:5;top:100%;left:0;right:0;margin:.25rem 0 0;padding:.25rem;list-style:none;
+  background:var(--panel);border:1px solid var(--rule);border-radius:8px;max-height:20rem;overflow:auto;
+  box-shadow:0 8px 24px rgba(0,0,0,.12)}
+#results li button{display:flex;width:100%;justify-content:space-between;gap:.75rem;text-align:left;
+  background:none;border:0;padding:.5rem .6rem;border-radius:6px;cursor:pointer;color:var(--ink)}
+#results li button:hover,#results li button:focus-visible{background:var(--blue-soft)}
+#results .sub{color:var(--muted);font-size:.8rem}
+
+main{display:grid;grid-template-columns:minmax(280px,380px) 1fr;gap:1.5rem;
+  padding:1.25rem clamp(1rem,3vw,2rem) 3rem;align-items:start}
+main>*{min-width:0}
+@media (max-width:860px){main{grid-template-columns:1fr}}
+
+.board{position:sticky;top:calc(env(safe-area-inset-top,0px) + 1rem)}
+@media (max-width:860px){.board{position:static;max-width:420px}}
+#formations{display:flex;flex-direction:column;gap:.3rem;margin-bottom:.9rem;max-height:13rem;overflow:auto}
+.fm{display:grid;grid-template-columns:4.2rem 1fr auto;align-items:center;gap:.6rem;
+  background:transparent;border:1px solid transparent;border-radius:6px;padding:.35rem .5rem;cursor:pointer;text-align:left}
+.fm:hover{border-color:var(--rule)}
+.fm[aria-pressed="true"]{background:var(--panel);border-color:var(--chalk)}
+.fm b{font:700 1.25rem/1 var(--num)}
+.fm span{font-size:.75rem;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fm em{font:600 .95rem var(--num);font-style:normal;color:var(--muted)}
+
+svg.pitch{width:100%;height:auto;display:block;background:var(--turf);border-radius:10px}
+.pitch .lines{fill:none;stroke:var(--chalk);stroke-width:.5;opacity:.7}
+.node{cursor:pointer}
+.node circle{fill:var(--panel);stroke:var(--ink);stroke-width:.5}
+.node text{font:600 3.1px var(--txt);fill:var(--ink);text-anchor:middle;dominant-baseline:central;pointer-events:none}
+.node.anchor{cursor:default}
+.node.anchor circle{fill:var(--blue);stroke:var(--blue)}
+.node.anchor text{fill:#fff}
+.node.sel circle{fill:var(--magnet);stroke:var(--magnet-ink);stroke-width:.7}
+.node.sel text{fill:var(--magnet-ink)}
+.node:focus-visible{outline:none}
+.node:focus-visible circle{stroke:var(--blue);stroke-width:1.2}
+.hint{font-size:.82rem;color:var(--muted);margin:.6rem 0 0}
+
+.baseline{display:flex;flex-wrap:wrap;gap:.25rem 2rem;align-items:baseline;padding-bottom:1rem;
+  border-bottom:2px solid var(--ink);margin-bottom:.25rem}
+.baseline .who{font-size:1rem;font-weight:600;flex-basis:100%}
+.baseline .stat{display:flex;align-items:baseline;gap:.4rem}
+.baseline .stat b{font:700 2.1rem/1 var(--num);white-space:nowrap}
+.baseline .stat span{font-size:.8rem;color:var(--muted)}
+
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;min-width:760px;font-variant-numeric:tabular-nums}
+th{font-size:.78rem;font-weight:500;color:var(--muted);text-align:right;padding:.6rem .5rem;
+  border-bottom:1px solid var(--rule);white-space:nowrap}
+th button{background:none;border:0;padding:0;cursor:pointer;color:inherit}
+th[aria-sort] button{color:var(--ink);font-weight:600}
+th:first-child,td:first-child{text-align:left}
+td{padding:.55rem .5rem;border-bottom:1px solid var(--rule);text-align:right;vertical-align:middle}
+td.num{font:600 1.08rem var(--num);white-space:nowrap}
+.combo{display:flex;flex-direction:column;gap:.1rem}
+.combo div{display:flex;gap:.4rem;align-items:baseline;white-space:nowrap}
+.combo .pos{font:600 .78rem var(--num);color:var(--muted);width:2.3rem}
+.tag{font-size:.7rem;padding:.02rem .35rem;border-radius:4px;background:var(--board);color:var(--muted);border:1px solid var(--rule)}
+.bar{position:relative;display:inline-block;width:4.5rem;height:.45rem;background:var(--board);border-radius:3px;vertical-align:middle;margin-left:.45rem}
+.bar i{position:absolute;left:0;top:0;bottom:0;border-radius:3px;background:var(--chalk)}
+.bar s{position:absolute;top:-.2rem;bottom:-.2rem;width:2px;background:var(--ink);text-decoration:none}
+.more{margin-top:.75rem;background:var(--panel);border:1px solid var(--rule);border-radius:6px;padding:.45rem .9rem;cursor:pointer}
+.pos-v{color:var(--blue)} .neg-v{color:var(--red)}
+.thin{opacity:.55}
+
+section.matrix{margin-top:2.5rem}
+h2{font:700 1.5rem/1.1 var(--num);margin:0 0 .3rem}
+.note{font-size:.82rem;color:var(--muted);margin:0 0 1rem;max-width:70ch}
+.grid{display:grid;gap:3px;min-width:640px}
+.grid .h{font-size:.75rem;color:var(--muted);padding:.3rem;display:flex;align-items:flex-end;line-height:1.25}
+.grid .rh{font-size:.8rem;padding:.3rem .5rem;display:flex;flex-direction:column;justify-content:center;line-height:1.25}
+.cell{border-radius:4px;padding:.35rem;text-align:center;min-height:3rem;display:flex;flex-direction:column;justify-content:center}
+.cell b{font:700 1.05rem/1 var(--num)}
+.cell small{font-size:.68rem;opacity:.8}
+.cell.empty{background:transparent;border:1px dashed var(--rule)}
+
+.empty-state{padding:2.5rem 0;color:var(--muted);max-width:52ch}
+.empty-state strong{color:var(--ink);display:block;font-size:1.05rem;margin-bottom:.3rem}
+details.help{margin-top:1.25rem;font-size:.85rem;color:var(--muted)}
+details.help summary{cursor:pointer;color:var(--ink)}
+details.help dl{display:grid;grid-template-columns:max-content 1fr;gap:.35rem 1rem;margin:.75rem 0 0}
+details.help dt{color:var(--ink);font-weight:600}
+details.help dd{margin:0}
+@media (prefers-reduced-motion:no-preference){.bar i{transition:width .25s ease}}
+</style>
+</head>
+<body>
+<header>
+  <h1>감독모드 조합 분석</h1>
+  <div id="status">서버에 연결하는 중</div>
+</header>
+
+<div class="controls">
+  <div class="field search">
+    <label for="q">기준 선수</label>
+    <input id="q" type="search" autocomplete="off" placeholder="예: 보비 찰턴">
+    <ul id="results" hidden></ul>
+  </div>
+  <div class="field">
+    <label for="pos">기준 포지션</label>
+    <select id="pos" disabled></select>
+  </div>
+  <div class="field">
+    <label for="days">기간</label>
+    <select id="days">
+      <option value="">전체</option><option value="7">최근 7일</option>
+      <option value="30" selected>최근 30일</option><option value="90">최근 90일</option>
+    </select>
+  </div>
+  <div class="field small">
+    <label for="minGames">최소 경기</label>
+    <input id="minGames" type="number" min="1" value="10">
+  </div>
+  <div class="field small">
+    <label for="gmin">팀 평균 강화 ≥</label>
+    <input id="gmin" type="number" step="0.5" min="1" max="13" placeholder="없음">
+  </div>
+  <div class="field small">
+    <label for="gmax">팀 평균 강화 ≤</label>
+    <input id="gmax" type="number" step="0.5" min="1" max="13" placeholder="없음">
+  </div>
+</div>
+
+<main>
+  <aside class="board">
+    <div id="formations"></div>
+    <svg class="pitch" id="pitch" viewBox="0 0 100 110" role="group" aria-label="포메이션 보드"></svg>
+    <p class="hint" id="hint">기준 선수를 고르면 그 선수가 쓰인 포메이션이 여기에 나옵니다.</p>
+  </aside>
+
+  <div>
+    <div id="baseline"></div>
+    <div id="table"><div class="empty-state"><strong>기준 선수부터 고르세요</strong>
+      선수 이름을 검색하고 포지션과 포메이션을 정하면, 보드에서 고른 두 자리의 선수 조합별 성적이 여기에 정리됩니다.</div></div>
+    <section class="matrix" id="matrix" hidden></section>
+    <details class="help">
+      <summary>지표 읽는 법</summary>
+      <dl>
+        <dt>보정 승률</dt><dd>기준선 승률을 20경기만큼 섞은 값입니다. 표본이 적은 조합이 우연히 튀는 것을 눌러 주므로 순위는 이 값으로 매깁니다.</dd>
+        <dt>95% 하한</dt><dd>통계적으로 '최소한 이 정도'라고 말할 수 있는 승률입니다. 기준선보다 높으면 꽤 믿을 만한 조합입니다.</dd>
+        <dt>체급 보정</dt><dd>양 팀 평균 강화 차이로 예상되는 승점률 대비 실제 승점률(무승부 0.5)의 차이입니다. 비싼 조합이라 이긴 몫을 일부 걷어낸 값이라, 순수한 호흡에 더 가깝습니다.</dd>
+        <dt>한계</dt><dd>넥슨 API에는 전술 설정, 팀컬러, 선수 OVR이 없습니다. 체급은 평균 강화로만 근사하므로 결과는 가설로 쓰고, 본인 스쿼드 실험으로 확인하는 편이 좋습니다.</dd>
+      </dl>
+    </details>
+  </div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/sql.js@1.13.0/dist/sql-wasm.js"></script>
+<script src="engine.js"></script>
+<script>
+const COORD={0:[50,100],1:[50,90],2:[88,66],3:[86,80],4:[64,86],5:[50,86],6:[36,86],7:[14,80],8:[12,66],
+ 9:[64,70],10:[50,70],11:[36,70],12:[87,50],13:[64,56],14:[50,56],15:[36,56],16:[13,50],
+ 17:[68,38],18:[50,38],19:[32,38],20:[66,24],21:[50,24],22:[34,24],23:[85,24],24:[60,14],
+ 25:[50,12],26:[40,14],27:[15,24]};
+const POS={0:"GK",1:"SW",2:"RWB",3:"RB",4:"RCB",5:"CB",6:"LCB",7:"LB",8:"LWB",9:"RDM",10:"CDM",11:"LDM",
+ 12:"RM",13:"RCM",14:"CM",15:"LCM",16:"LM",17:"RAM",18:"CAM",19:"LAM",20:"RF",21:"CF",22:"LF",23:"RW",
+ 24:"RS",25:"ST",26:"LS",27:"LW"};
+const CODE=Object.fromEntries(Object.entries(POS).map(([k,v])=>[v,+k]));
+const $=s=>document.querySelector(s);
+const S={anchor:null,pos:null,formation:null,slots:[],data:null,sort:{key:"shrunk",dir:-1},limit:25};
+
+const pct=x=>x==null?"–":(x*100).toFixed(1);
+const signed=x=>(x>0?"+":"")+x.toFixed(1);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+
+async function api(path,params={}){
+  const u=new URL(path,location.origin);
+  Object.entries(params).forEach(([k,v])=>{if(v!==""&&v!=null)u.searchParams.set(k,v)});
+  const r=await fetch(u);
+  if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||`요청 실패 (${r.status})`)}
+  return r.json();
+}
+const filters=()=>({days:$("#days").value,gmin:$("#gmin").value,gmax:$("#gmax").value});
+
+async function loadStatus(){
+  try{
+    const s=await api("/api/status");
+    $("#status").textContent=s.matches
+      ?`${s.matches.toLocaleString()}경기 수집됨, 마지막 ${(s.last||"").slice(0,16).replace("T"," ")}`
+      :"아직 수집된 경기가 없습니다. collector.py를 먼저 실행하세요.";
+  }catch{ $("#status").textContent="서버에 연결할 수 없습니다. uvicorn server:app 으로 실행했는지 확인하세요."; }
+}
+
+/* 선수 검색 */
+let timer;
+$("#q").addEventListener("input",e=>{
+  clearTimeout(timer);
+  const q=e.target.value.trim();
+  if(!q){$("#results").hidden=true;return}
+  timer=setTimeout(async()=>{
+    const list=await api("/api/players",{q}).catch(()=>[]);
+    const ul=$("#results");
+    ul.innerHTML=list.length?list.map((p,i)=>`<li><button data-i="${i}">
+      <span>${esc(p.name)} <span class="tag">${esc(p.season)}</span></span>
+      <span class="sub">${p.games.toLocaleString()}경기${p.positions[0]?`, 주로 ${p.positions[0][0]}`:""}</span></button></li>`).join("")
+      :`<li class="sub" style="padding:.5rem .6rem">일치하는 선수가 없습니다.</li>`;
+    ul.hidden=false;
+    ul.querySelectorAll("button").forEach(b=>b.onclick=()=>pickAnchor(list[+b.dataset.i]));
+  },220);
+});
+document.addEventListener("click",e=>{if(!e.target.closest(".search"))$("#results").hidden=true});
+
+function pickAnchor(p){
+  S.anchor=p; $("#q").value=`${p.name} (${p.season})`; $("#results").hidden=true;
+  const sel=$("#pos"); sel.disabled=false;
+  const opts=p.positions.length?p.positions:[["RAM",0]];
+  sel.innerHTML=opts.map(([n,c])=>`<option value="${CODE[n]}">${n}${c?` (${c.toLocaleString()}경기)`:""}</option>`).join("");
+  S.pos=+sel.value; loadFormations();
+}
+$("#pos").onchange=e=>{S.pos=+e.target.value;loadFormations()};
+["#days","#gmin","#gmax"].forEach(s=>$(s).addEventListener("change",()=>S.anchor&&loadFormations(true)));
+$("#minGames").addEventListener("change",()=>S.formation&&loadCombos());
+
+/* 포메이션 */
+async function loadFormations(keep=false){
+  const box=$("#formations");
+  const list=await api("/api/formations",{anchor:S.anchor.sp_id,pos:S.pos,...filters()}).catch(()=>[]);
+  if(!list.length){
+    box.innerHTML=""; S.formation=null; drawPitch(null);
+    $("#hint").textContent="이 조건에서 기록된 경기가 없습니다. 기간을 넓히거나 강화 조건을 풀어 보세요.";
+    renderEmpty("조건에 맞는 경기가 없습니다","기간을 전체로 바꾸거나 팀 평균 강화 범위를 비워 보세요.");
+    return;
+  }
+  box.innerHTML=list.map((f,i)=>`<button class="fm" data-i="${i}" aria-pressed="false">
+    <b>${f.label}</b><span>${f.positions.join(" ")}</span><em>${f.games.toLocaleString()}</em></button>`).join("");
+  box.querySelectorAll(".fm").forEach(b=>b.onclick=()=>pickFormation(list[+b.dataset.i],b));
+  const keepIdx=keep&&S.formation?list.findIndex(f=>f.sig===S.formation.sig):-1;
+  const i=keepIdx>=0?keepIdx:0;
+  pickFormation(list[i],box.children[i],keepIdx>=0);
+}
+
+function pickFormation(f,btn,keepSlots=false){
+  S.formation=f;
+  document.querySelectorAll(".fm").forEach(b=>b.setAttribute("aria-pressed",b===btn));
+  if(!keepSlots||!S.slots.every(s=>f.codes.includes(s))) S.slots=defaultSlots(f.codes);
+  drawPitch(f); loadCombos();
+}
+
+function defaultSlots(codes){
+  const others=codes.filter(c=>c!==S.pos);
+  if(others.includes(15)&&others.includes(13)) return [15,13];
+  const [ax,ay]=COORD[S.pos]||[50,50];
+  return others.sort((a,b)=>Math.hypot(COORD[a][0]-ax,COORD[a][1]-ay)-Math.hypot(COORD[b][0]-ax,COORD[b][1]-ay)).slice(0,2);
+}
+
+/* 보드 */
+function drawPitch(f){
+  const svg=$("#pitch");
+  const lines=`<g class="lines"><rect x="3" y="3" width="94" height="104" rx="1"/>
+    <line x1="3" y1="55" x2="97" y2="55"/><circle cx="50" cy="55" r="9"/>
+    <rect x="25" y="3" width="50" height="16"/><rect x="25" y="91" width="50" height="16"/>
+    <rect x="38" y="3" width="24" height="6"/><rect x="38" y="101" width="24" height="6"/></g>`;
+  if(!f){svg.innerHTML=lines;return}
+  const codes=[0,...f.codes];
+  svg.innerHTML=lines+codes.map(c=>{
+    const [x,y]=COORD[c]; const anchor=c===S.pos; const sel=S.slots.includes(c);
+    const cls=anchor?"anchor":sel?"sel":"";
+    const lbl=anchor?`${POS[c]}, 기준 선수`:`${POS[c]}${sel?", 선택됨":""}`;
+    return `<g class="node ${cls}" data-c="${c}" ${anchor||c===0?"":`tabindex="0" role="button" aria-pressed="${sel}"`} aria-label="${lbl}">
+      <circle cx="${x}" cy="${y}" r="5"/><text x="${x}" y="${y}">${POS[c]}</text></g>`}).join("");
+  svg.querySelectorAll(".node[role=button]").forEach(n=>{
+    const toggle=()=>{
+      const c=+n.dataset.c;
+      if(S.slots.includes(c)) S.slots=S.slots.filter(x=>x!==c);
+      else S.slots=[...S.slots,c].slice(-2);
+      drawPitch(S.formation); loadCombos();
+    };
+    n.onclick=toggle;
+    n.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();toggle();svg.querySelector(`[data-c="${n.dataset.c}"]`).focus()}};
+  });
+  $("#hint").textContent=S.slots.length===2
+    ?`${POS[S.slots[0]]}과 ${POS[S.slots[1]]} 조합을 비교합니다. 다른 자리를 누르면 바뀝니다.`
+    :S.slots.length===1?`${POS[S.slots[0]]} 한 자리만 비교합니다. 한 곳을 더 누르면 조합으로 봅니다.`
+    :"비교할 자리를 한두 곳 누르세요.";
+}
+
+/* 조합 */
+let seq=0;
+async function loadCombos(){
+  if(!S.slots.length){renderEmpty("비교할 자리를 고르세요","보드에서 한두 자리를 누르면 그 자리에 쓰인 선수별, 조합별 성적이 나옵니다.");return}
+  const my=++seq;
+  $("#table").style.opacity=.5;
+  try{
+    const d=await api("/api/combos",{anchor:S.anchor.sp_id,pos:S.pos,formation:S.formation.sig,
+      slots:S.slots.join(","),min_games:$("#minGames").value||1,...filters()});
+    if(my!==seq)return;
+    S.data=d; S.limit=25; render();
+  }catch(e){ if(my===seq) renderEmpty("불러오지 못했습니다",e.message); }
+  finally{ if(my===seq) $("#table").style.opacity=1; }
+}
+
+function renderEmpty(title,msg){
+  $("#baseline").innerHTML=""; $("#matrix").hidden=true;
+  $("#table").innerHTML=`<div class="empty-state"><strong>${esc(title)}</strong>${esc(msg)}</div>`;
+}
+
+function render(){
+  const d=S.data,b=d.baseline;
+  if(!b){renderEmpty("조건에 맞는 경기가 없습니다","기간이나 강화 조건을 넓혀 보세요.");return}
+  $("#baseline").innerHTML=`<div class="baseline">
+    <div class="who">${esc(S.anchor.name)} <span class="tag">${esc(S.anchor.season)}</span>
+      ${POS[S.pos]}, ${S.formation.label} <span class="sub" style="color:var(--muted);font-weight:400">(${S.formation.positions.join(" ")})</span></div>
+    <div class="stat"><b>${b.n.toLocaleString()}</b><span>경기</span></div>
+    <div class="stat"><b>${pct(b.win_rate)}</b><span>% 기준 승률</span></div>
+    <div class="stat"><b>${b.w}-${b.d}-${b.l}</b><span>승무패</span></div>
+    <div class="stat"><b class="${b.adj_pp>=0?"pos-v":"neg-v"}">${signed(b.adj_pp)}</b><span>%p 체급 보정</span></div>
+    <div class="stat"><b>${d.rows.length}</b><span>조합 (전체 ${d.combos_total}개 중 최소 경기 충족)</span></div></div>`;
+  renderTable(); renderMatrix();
+}
+
+const COLS=[
+  {key:"n",label:"경기"},{key:"wdl",label:"승-무-패",nosort:1},{key:"win_rate",label:"승률"},
+  {key:"shrunk",label:"보정 승률"},{key:"lower95",label:"95% 하한"},{key:"adj_pp",label:"체급 보정"},
+  {key:"gd",label:"평균 득실"},{key:"anchor_rating",label:"기준 선수 평점"},{key:"grades",label:"강화",nosort:1}];
+
+function renderTable(){
+  const d=S.data,base=d.baseline.win_rate,{key,dir}=S.sort;
+  if(!d.rows.length){
+    $("#table").innerHTML=`<div class="empty-state"><strong>최소 경기 수를 넘는 조합이 없습니다</strong>
+      최소 경기를 낮추거나 기간을 넓혀 보세요. 전체 조합은 ${d.combos_total}개입니다.</div>`;return}
+  const sorted=[...d.rows].sort((a,b)=>((a[key]??-1e9)-(b[key]??-1e9))*dir);
+  const rows=sorted.slice(0,S.limit);
+  const maxS=Math.max(...rows.map(r=>r.shrunk),base)*1.05;
+  const head=`<tr><th>${d.slots.join(" + ")}</th>${COLS.map(c=>c.nosort?`<th>${c.label}</th>`
+    :`<th ${c.key===key?`aria-sort="${dir<0?"descending":"ascending"}"`:""}><button data-k="${c.key}">${c.label}${c.key===key?(dir<0?" ▼":" ▲"):""}</button></th>`).join("")}</tr>`;
+  const body=rows.map(r=>{
+    const thin=r.n<30?" thin":"";
+    return `<tr>
+    <td><div class="combo">${r.players.map((p,i)=>`<div><span class="pos">${d.slots[i]}</span>${esc(p.name)} <span class="tag">${esc(p.season)}</span></div>`).join("")}</div></td>
+    <td class="num${thin}">${r.n.toLocaleString()}</td>
+    <td class="num">${r.w}-${r.d}-${r.l}</td>
+    <td class="num${thin}">${pct(r.win_rate)}</td>
+    <td class="num">${pct(r.shrunk)}<span class="bar" aria-hidden="true"><i style="width:${r.shrunk/maxS*100}%"></i><s style="left:${base/maxS*100}%"></s></span></td>
+    <td class="num ${r.lower95>base?"pos-v":""}">${pct(r.lower95)}</td>
+    <td class="num ${r.adj_pp>=0?"pos-v":"neg-v"}">${signed(r.adj_pp)}</td>
+    <td class="num">${signed(r.gd)}</td>
+    <td class="num">${r.anchor_rating?r.anchor_rating.toFixed(2):"–"}</td>
+    <td class="num" style="color:var(--muted)">${r.grades.map(g=>g.toFixed(1)).join(" / ")}</td></tr>`}).join("");
+  $("#table").innerHTML=`<div class="tablewrap"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>
+    ${sorted.length>S.limit?`<button class="more" id="more">${Math.min(25,sorted.length-S.limit)}개 더 보기 (${S.limit}/${sorted.length})</button>`:""}
+    <p class="note" style="margin-top:.6rem">흐린 숫자는 30경기 미만입니다. 막대의 검은 선은 기준 승률 ${pct(base)}%입니다.</p>`;
+  const more=$("#more"); if(more) more.onclick=()=>{S.limit+=25;renderTable()};
+  $("#table").querySelectorAll("th button").forEach(bt=>bt.onclick=()=>{
+    const k=bt.dataset.k; S.sort={key:k,dir:S.sort.key===k?-S.sort.dir:-1}; S.limit=25; renderTable();});
+}
+
+function renderMatrix(){
+  const m=S.data.matrix,sec=$("#matrix");
+  if(!m||!m.rows.length){sec.hidden=true;return}
+  sec.hidden=false;
+  const cellColor=v=>{const a=Math.min(Math.abs(v)/12,1);
+    return v>=0?`color-mix(in srgb, var(--blue) ${Math.round(a*70)}%, var(--panel))`
+               :`color-mix(in srgb, var(--red) ${Math.round(a*70)}%, var(--panel))`};
+  const cols=m.cols.length;
+  let html=`<h2>${S.data.slots[0]} × ${S.data.slots[1]} 궁합표</h2>
+    <p class="note">각 자리에서 가장 많이 쓰인 선수끼리 교차한 표입니다. 색은 체급 보정값(파랑이 좋음), 큰 숫자는 보정 승률, 작은 숫자는 경기 수입니다. 최소 경기 조건과 관계없이 모든 교차를 보여 주므로 표본이 작은 칸은 참고만 하세요.</p>
+    <div class="tablewrap"><div class="grid" style="grid-template-columns:minmax(9rem,1.3fr) repeat(${cols},minmax(4.5rem,1fr))">
+    <div class="h">${S.data.slots[0]} ↓  ${S.data.slots[1]} →</div>`;
+  html+=m.cols.map(c=>`<div class="h">${esc(c.name)}<br>${esc(c.season)}</div>`).join("");
+  m.rows.forEach((r,i)=>{
+    html+=`<div class="rh"><span>${esc(r.name)}</span><span class="tag" style="align-self:flex-start">${esc(r.season)}</span></div>`;
+    html+=m.cells[i].map(c=>c?`<div class="cell" style="background:${cellColor(c.adj_pp)}" title="체급 보정 ${signed(c.adj_pp)}%p">
+      <b>${pct(c.shrunk)}</b><small>${c.n}경기</small></div>`:`<div class="cell empty" aria-label="기록 없음"></div>`).join("");
+  });
+  sec.innerHTML=html+"</div></div>";
+}
+
+drawPitch(null); loadStatus();
+</script>
+</body>
+</html>
