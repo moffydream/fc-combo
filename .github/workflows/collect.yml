@@ -48,11 +48,11 @@ jobs:
         run: |
           mkdir -p state
           python collector.py --batch \
-            --seed-if-empty --seed ${{ vars.SEED_NICKNAMES }} \
+            --seed-${{ vars.SEED_NICKNAMES }} \
             --run-minutes ${{ vars.RUN_MINUTES || 25 }} \
             --max-matches ${{ vars.MATCHES_PER_RUN || 1000 }} \
             --window-days ${{ vars.WINDOW_DAYS || 7 }} \
-            --users 30 --rps 50 --daily 5000000
+            --users 200 --limit 10 --rps 50 --daily 5000000
 
       - name: DB 저장
         if: always() && hashFiles('state/fc_combo.db') != ''
