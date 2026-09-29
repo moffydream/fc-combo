@@ -45,14 +45,11 @@ jobs:
       - name: 수집
         env:
           NEXON_API_KEYS: ${{ secrets.NEXON_API_KEYS }}
+          SEEDS: ${{ vars.SEED_NICKNAMES }}
         run: |
+          set -f
           mkdir -p state
-          python collector.py --batch \
-            --seed-${{ vars.SEED_NICKNAMES }} \
-            --run-minutes ${{ vars.RUN_MINUTES || 25 }} \
-            --max-matches ${{ vars.MATCHES_PER_RUN || 1000 }} \
-            --window-days ${{ vars.WINDOW_DAYS || 7 }} \
-            --users 200 --limit 10 --rps 50 --daily 5000000
+          python collector.py --batch --seed $SEEDS --run-minutes ${{ vars.RUN_MINUTES || 25 }} --max-matches ${{ vars.MATCHES_PER_RUN || 1000 }} --window-days ${{ vars.WINDOW_DAYS || 7 }} --users 200 --limit 10 --rps 50 --daily 5000000
 
       - name: DB 저장
         if: always() && hashFiles('state/fc_combo.db') != ''
