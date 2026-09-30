@@ -4,6 +4,15 @@ on:
   schedule:
     - cron: "7 * * * *"
   workflow_dispatch:
+    inputs:
+      max_matches:
+        description: "이번에 수집할 경기 수 (비우면 평소 설정)"
+        required: false
+        default: ""
+      rps:
+        description: "초당 요청 수 (비우면 50)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -49,7 +58,7 @@ jobs:
         run: |
           set -f
           mkdir -p state
-          python collector.py --batch --seed $SEEDS --run-minutes ${{ vars.RUN_MINUTES || 25 }} --max-matches ${{ vars.MATCHES_PER_RUN || 1000 }} --window-days ${{ vars.WINDOW_DAYS || 7 }} --users 200 --limit 10 --rps 50 --daily 5000000
+          python collector.py --batch --seed $SEEDS --run-minutes ${{ vars.RUN_MINUTES || 25 }} --max-matches ${{ inputs.max_matches || vars.MATCHES_PER_RUN || 1000 }} --window-days ${{ vars.WINDOW_DAYS || 7 }} --users 200 --limit 10 --rps ${{ inputs.rps || 50 }} --daily 5000000
 
       - name: DB 저장
         if: always() && hashFiles('state/fc_combo.db') != ''
