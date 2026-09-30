@@ -60,6 +60,7 @@ jobs:
 
       - name: 오래된 DB 캐시 정리
         if: always()
+        continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
