@@ -29,13 +29,13 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS card_info(
   sp_id INTEGER PRIMARY KEY, ok INTEGER, ovr INTEGER, main_pos TEXT, height INTEGER, weight INTEGER,
   body TEXT, foot_l INTEGER, foot_r INTEGER, stats TEXT, traits TEXT, fetched_at REAL, main_foot TEXT,
-  pay INTEGER, clubs TEXT, body_unique INTEGER);
+  pay INTEGER, clubs TEXT, body_unique INTEGER, trait_meta TEXT);
 """
 
 
 def migrate(con):
     """이전 버전 테이블에 주발 열을 추가하고, 양발 숫자가 다른 카드는 숫자로 주발을 채운다."""
-    for col in ("main_foot TEXT", "pay INTEGER", "clubs TEXT", "body_unique INTEGER"):
+    for col in ("main_foot TEXT", "pay INTEGER", "clubs TEXT", "body_unique INTEGER", "trait_meta TEXT"):
         try:
             con.execute(f"ALTER TABLE card_info ADD COLUMN {col}")
         except Exception:
@@ -114,12 +114,24 @@ def parse(page, name=None):
     out["stats"] = stats
     om = re.search(r"\b(" + POSITIONS + r")\s*\n?\s*(\d{2,3})\b", text[:m.start()][-400:])
     out["main_pos"], out["ovr"] = (om.group(1), int(om.group(2))) if om else (None, None)
-    traits = []
-    for tag in re.findall(r"<img[^>]*/traits/[^>]*>", page, flags=re.I):
+    # 특성: 이름(alt) + 아이콘 주소 + 주변 class 단서 + '(AI)' 표시 여부
+    traits, meta = [], {}
+    for tm in re.finditer(r"<img[^>]*/traits/[^>]*>", page, flags=re.I):
+        tag = tm.group(0)
         am = re.search(r'alt="([^"]+)"', tag)
-        if am and am.group(1) not in traits:
-            traits.append(html.unescape(am.group(1)).strip())
+        if not am:
+            continue
+        tname = html.unescape(am.group(1)).strip()
+        if tname in meta:
+            continue
+        sm = re.search(r'src="([^"]+)"', tag)
+        ctx = page[max(0, tm.start() - 300): tm.end()]
+        classes = " ".join(re.findall(r'class="([^"]*)"', ctx)[-3:])
+        ai = bool(re.search(re.escape(tname) + r"\s*\(AI\)", text))
+        traits.append(tname)
+        meta[tname] = [sm.group(1) if sm else "", 1 if ai else 0, classes[:120]]
     out["traits"] = traits
+    out["trait_meta"] = meta
     out["main_foot"] = main_foot(page, out["foot_l"], out["foot_r"]) or "?"  # ?: 판단 불가 (다시 받지 않음)
     pm = re.search(r"급여\s*[:：]?\s*\n?\s*(\d{1,2})\b", text)
     if not pm and name:
@@ -158,13 +170,13 @@ async def main():
     remaining = con.execute(
         "SELECT COUNT(*) FROM (SELECT p.sp_id FROM players p LEFT JOIN card_info c ON c.sp_id = p.sp_id "
         "WHERE p.pos != 28 AND (c.sp_id IS NULL OR c.fetched_at < ? "
-        "OR (c.ok = 0 AND c.fetched_at < ?) OR (c.ok = 1 AND (c.main_foot IS NULL OR c.pay IS NULL OR c.clubs IS NULL) AND c.fetched_at < ?)) "
+        "OR (c.ok = 0 AND c.fetched_at < ?) OR (c.ok = 1 AND (c.main_foot IS NULL OR c.pay IS NULL OR c.clubs IS NULL OR c.trait_meta IS NULL) AND c.fetched_at < ?)) "
         "GROUP BY p.sp_id HAVING COUNT(*) >= ?)", cond_args).fetchone()[0]
     print(f"[cards] 받아야 할 카드 {remaining}장 중 이번에 최대 {min(remaining, a.max)}장")
     todo = [r[0] for r in con.execute(
         "SELECT p.sp_id FROM players p LEFT JOIN card_info c ON c.sp_id = p.sp_id "
         "WHERE p.pos != 28 AND (c.sp_id IS NULL OR c.fetched_at < ? "
-        "OR (c.ok = 0 AND c.fetched_at < ?) OR (c.ok = 1 AND (c.main_foot IS NULL OR c.pay IS NULL OR c.clubs IS NULL) AND c.fetched_at < ?)) "
+        "OR (c.ok = 0 AND c.fetched_at < ?) OR (c.ok = 1 AND (c.main_foot IS NULL OR c.pay IS NULL OR c.clubs IS NULL OR c.trait_meta IS NULL) AND c.fetched_at < ?)) "
         "GROUP BY p.sp_id HAVING COUNT(*) >= ? ORDER BY COUNT(*) DESC LIMIT ?",
         (*cond_args, a.max))]
     if not todo:
@@ -194,13 +206,14 @@ async def main():
                 if ok == 1:
                     print(f"[cards] 첫 파싱 예시 {sp}: 키 {info['height']} 몸무게 {info['weight']} {info['body']} "
                           f"{'(고유) ' if info['body_unique'] else ''}L{info['foot_l']}-R{info['foot_r']} 주발 {info['main_foot']} 급여 {info['pay']} "
-                          f"클럽 {[c[0] for c in info['clubs']][:4]} OVR {info['ovr']} 능력치 {len(info['stats'])}개 특성 {info['traits']}")
-                con.execute("INSERT OR REPLACE INTO card_info VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                          f"클럽 {[c[0] for c in info['clubs']][:4]} 특성아이콘 {list(info['trait_meta'].values())[:1]} OVR {info['ovr']} 능력치 {len(info['stats'])}개 특성 {info['traits']}")
+                con.execute("INSERT OR REPLACE INTO card_info VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                             (sp, 1, info["ovr"], info["main_pos"], info["height"], info["weight"],
                              info["body"], info["foot_l"], info["foot_r"],
                              json.dumps(info["stats"], ensure_ascii=False),
                              json.dumps(info["traits"], ensure_ascii=False), time.time(), info["main_foot"], info["pay"],
-                             json.dumps(info["clubs"], ensure_ascii=False), info["body_unique"]))
+                             json.dumps(info["clubs"], ensure_ascii=False), info["body_unique"],
+                             json.dumps(info["trait_meta"], ensure_ascii=False)))
             else:
                 fail += 1
                 streak += 1

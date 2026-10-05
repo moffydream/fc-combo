@@ -30,6 +30,32 @@ def hour_no(iso):
         return 0
 
 
+def trait_info(names, seen):
+    """특성별 [아이콘 주소, AI 성향 여부, 구분('신규'/'기존'/'')].
+    신규(노란색) 여부는 페이지 글자에 없어서 아이콘 주소와 주변 class로 추정한다:
+    'new/yellow/gold' 같은 단서가 있으면 신규, 아니면 아이콘 파일 이름 형태가 다수와 다르면 신규."""
+    import re as _re
+    from collections import Counter
+    icon = {n: (max(seen[n]["icons"].items(), key=lambda x: x[1])[0] if seen.get(n) and seen[n]["icons"] else "")
+            for n in names}
+    fam = {n: _re.sub(r"\d+", "#", icon[n].rsplit("?", 1)[0]) for n in names}
+    common = Counter(f for f in fam.values() if f).most_common(1)
+    common = common[0][0] if common else None
+    kw = _re.compile(r"new|yellow|gold|renew|special|premium", _re.I)
+    out = []
+    for n in names:
+        s = seen.get(n, {"ai": 0, "hints": set()})
+        hint_txt = icon[n] + " " + " ".join(s["hints"])
+        if not icon[n]:
+            grp = ""
+        elif kw.search(hint_txt) or (common and fam[n] != common):
+            grp = "신규"
+        else:
+            grp = "기존"
+        out.append([icon[n], s["ai"], grp])
+    return out
+
+
 def dump(path, obj):
     path.write_text(json.dumps(obj, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
 
@@ -165,7 +191,7 @@ def main():
         from cards import migrate
         migrate(con)
         card_rows = con.execute("SELECT sp_id, ovr, height, weight, body, foot_l, foot_r, stats, traits, main_foot, pay, "
-                                "clubs, body_unique FROM card_info WHERE ok = 1").fetchall()
+                                "clubs, body_unique, trait_meta FROM card_info WHERE ok = 1").fetchall()
     except Exception:
         card_rows = []
     used = set()
@@ -173,7 +199,15 @@ def main():
         used.update(sp for (sp, _, _) in entries)
     trait_names, bodies, cards_out = {}, ["마름", "보통", "건장"], {}
     club_names = {}
-    for sp, ovr, h, w, body, fl, fr, st, tr, mf, pay, clubs, uniq in card_rows:
+    trait_seen = defaultdict(lambda: {"icons": defaultdict(int), "ai": 0, "hints": set()})
+    for sp, ovr, h, w, body, fl, fr, st, tr, mf, pay, clubs, uniq, tmeta in card_rows:
+        for tn, (icon, ai, hint) in json.loads(tmeta or "{}").items():
+            ts = trait_seen[tn]
+            if icon:
+                ts["icons"][icon] += 1
+            ts["ai"] |= ai
+            if hint:
+                ts["hints"].add(hint)
         if sp not in used:
             continue
         st, tr = json.loads(st or "{}"), json.loads(tr or "[]")
@@ -193,8 +227,8 @@ def main():
         clist = [None] * len(club_names)
         for cn, i in club_names.items():
             clist[i] = cn
-        dump(out / "data" / "cards.json", {"stats": STATS, "traits": tlist, "bodies": bodies, "clubs": clist,
-                                           "c": cards_out})
+        dump(out / "data" / "cards.json", {"stats": STATS, "traits": tlist, "trait_info": trait_info(tlist, trait_seen),
+                                           "bodies": bodies, "clubs": clist, "c": cards_out})
 
     dates = [t["date"] for t in teams.values() if t["date"]]
     dump(out / "data" / "index.json", {
