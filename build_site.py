@@ -52,14 +52,19 @@ def main():
                          "t.opp_avg_grade, m.match_date FROM teams t JOIN matches m ON m.match_id=t.match_id"):
         teams[(r[0], r[1])] = {"res": r[2], "gf": r[3], "ga": r[4], "f": r[5], "g": r[6], "og": r[7],
                                "date": r[8] or "", "lineup": {}}
-    for mid, side, sp, pos, grade, rating in con.execute(
-            "SELECT match_id, side, sp_id, pos, grade, rating FROM players WHERE pos != 28"):
+    for mid, side, sp, pos, grade, rating, goal, assist, pt, ps, tk, ic, bl in con.execute(
+            "SELECT match_id, side, sp_id, pos, grade, rating, goal, assist, pass_try, pass_succ, "
+            "tackle, intercept, block FROM players WHERE pos != 28"):
         t = teams.get((mid, side))
         if t:
+            # (선수, 강화, 평점, 골, 도움, 수비 기록, 패스 시도, 패스 성공, 확장 기록 유무)
+            ext = pt is not None
+            rec = (sp, grade, rating, goal or 0, assist or 0,
+                   (tk or 0) + (ic or 0) + (bl or 0) if ext else 0, pt or 0, ps or 0, 1 if ext else 0)
             if pos == 0:
-                t["gk"] = (sp, grade, rating)      # 골키퍼는 라인업(포메이션)과 따로 보관
+                t["gk"] = rec      # 골키퍼는 라인업(포메이션)과 따로 보관
             else:
-                t["lineup"][pos] = (sp, grade, rating)
+                t["lineup"][pos] = rec
 
     # 체급 기대 승점표
     agg = defaultdict(lambda: [0.0, 0])
@@ -96,7 +101,7 @@ def main():
             lineup = []
             grades = []
             for c in codes:
-                s, g, _ = t["lineup"][c]
+                s, g = t["lineup"][c][:2]
                 if s not in pidx:
                     pidx[s] = len(plist)
                     plist.append(s)
@@ -113,7 +118,8 @@ def main():
 
     # 포지션별 선수 성적 집계 (이상치 탐색용): (선수, 포메이션 계열, 강화) 단위
     labels = {}
-    pos_stats = defaultdict(lambda: defaultdict(lambda: [0, 0, 0, 0, 0.0, 0.0]))  # n, w, d, rn, rsum, adj
+    # n, w, d, rn, rsum, adj, 골, 도움, 확장기록 경기수, 수비 기록, 패스 시도, 패스 성공
+    pos_stats = defaultdict(lambda: defaultdict(lambda: [0, 0, 0, 0, 0.0, 0.0, 0, 0, 0, 0, 0, 0]))
     for t in teams.values():
         codes = [int(x) for x in t["f"].split("-")]
         if sorted(t["lineup"]) != codes:
@@ -126,7 +132,7 @@ def main():
         slots = [(c, t["lineup"][c]) for c in codes]
         if t.get("gk"):
             slots.append((0, t["gk"]))
-        for c, (sp, grade, rating) in slots:
+        for c, (sp, grade, rating, goal, assist, dfn, pt, ps, ext) in slots:
             e = pos_stats[c][(sp, lab, grade)]
             e[0] += 1
             e[1] += t["res"] == "W"
@@ -135,13 +141,20 @@ def main():
                 e[3] += 1
                 e[4] += rating
             e[5] += adj
+            e[6] += goal
+            e[7] += assist
+            if ext:
+                e[8] += 1
+                e[9] += dfn
+                e[10] += pt
+                e[11] += ps
     (out / "data" / "pos").mkdir()
     label_list = [None] * len(labels)
     for lab, i in labels.items():
         label_list[i] = lab
     for c, entries in pos_stats.items():
-        rows = [[sp, lab, grade, n, w, d, rn, round(rsum * 100), round(adj * 1000)]
-                for (sp, lab, grade), (n, w, d, rn, rsum, adj) in entries.items()]
+        rows = [[sp, lab, grade, n, w, d, rn, round(rsum * 100), round(adj * 1000), g, a, sn, dfn, pt, ps]
+                for (sp, lab, grade), (n, w, d, rn, rsum, adj, g, a, sn, dfn, pt, ps) in entries.items()]
         sps = {r[0] for r in rows}
         dump(out / "data" / "pos" / f"{c}.json",
              {"f": label_list, "n": {str(sp): names.get(sp, f"#{sp}") for sp in sps}, "e": rows})
@@ -151,15 +164,16 @@ def main():
         from cards import STATS
         from cards import migrate
         migrate(con)
-        card_rows = con.execute("SELECT sp_id, ovr, height, weight, body, foot_l, foot_r, stats, traits, main_foot, pay "
-                                "FROM card_info WHERE ok = 1").fetchall()
+        card_rows = con.execute("SELECT sp_id, ovr, height, weight, body, foot_l, foot_r, stats, traits, main_foot, pay, "
+                                "clubs, body_unique FROM card_info WHERE ok = 1").fetchall()
     except Exception:
         card_rows = []
     used = set()
     for entries in pos_stats.values():
         used.update(sp for (sp, _, _) in entries)
     trait_names, bodies, cards_out = {}, ["마름", "보통", "건장"], {}
-    for sp, ovr, h, w, body, fl, fr, st, tr, mf, pay in card_rows:
+    club_names = {}
+    for sp, ovr, h, w, body, fl, fr, st, tr, mf, pay, clubs, uniq in card_rows:
         if sp not in used:
             continue
         st, tr = json.loads(st or "{}"), json.loads(tr or "[]")
@@ -167,12 +181,20 @@ def main():
                               [st.get(n) for n in STATS],
                               [trait_names.setdefault(t, len(trait_names)) for t in tr],
                               {"L": 0, "R": 1}.get(mf, -1),
-                              pay if pay is not None and pay >= 0 else None]
+                              pay if pay is not None and pay >= 0 else None,
+                              # 클럽 경력: 정식은 번호, 임대는 -(번호+1)
+                              [(i if not loan else -(i + 1)) for cn, loan in json.loads(clubs or "[]")
+                               for i in [club_names.setdefault(cn, len(club_names))]],
+                              uniq or 0]
     tlist = [None] * len(trait_names)
     for t, i in trait_names.items():
         tlist[i] = t
     if cards_out:
-        dump(out / "data" / "cards.json", {"stats": STATS, "traits": tlist, "bodies": bodies, "c": cards_out})
+        clist = [None] * len(club_names)
+        for cn, i in club_names.items():
+            clist[i] = cn
+        dump(out / "data" / "cards.json", {"stats": STATS, "traits": tlist, "bodies": bodies, "clubs": clist,
+                                           "c": cards_out})
 
     dates = [t["date"] for t in teams.values() if t["date"]]
     dump(out / "data" / "index.json", {

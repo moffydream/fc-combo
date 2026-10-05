@@ -29,13 +29,13 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS card_info(
   sp_id INTEGER PRIMARY KEY, ok INTEGER, ovr INTEGER, main_pos TEXT, height INTEGER, weight INTEGER,
   body TEXT, foot_l INTEGER, foot_r INTEGER, stats TEXT, traits TEXT, fetched_at REAL, main_foot TEXT,
-  pay INTEGER);
+  pay INTEGER, clubs TEXT, body_unique INTEGER);
 """
 
 
 def migrate(con):
     """이전 버전 테이블에 주발 열을 추가하고, 양발 숫자가 다른 카드는 숫자로 주발을 채운다."""
-    for col in ("main_foot TEXT", "pay INTEGER"):
+    for col in ("main_foot TEXT", "pay INTEGER", "clubs TEXT", "body_unique INTEGER"):
         try:
             con.execute(f"ALTER TABLE card_info ADD COLUMN {col}")
         except Exception:
@@ -70,22 +70,47 @@ def to_text(page):
     return re.sub(r"[ \t\r\f\v]+", " ", t)
 
 
-def parse(page):
+def parse_clubs(text):
+    """'연도 / 클럽 / 임대 여부' 표에서 클럽 경력 목록 [[클럽, 임대여부], ...]"""
+    start = text.find("임대 여부")
+    if start < 0:
+        return []
+    end = text.find("플레이 평균 기록", start)
+    seg = text[start + 5: end if end > 0 else start + 3000]
+    clubs = []
+    for line in (l.strip() for l in seg.split("\n")):
+        if not line or re.fullmatch(r"\d{4}\s*~\s*(\d{4})?", line):
+            continue
+        if line == "임대":
+            if clubs:
+                clubs[-1][1] = 1
+            continue
+        if len(line) > 40:     # 표가 끝난 뒤의 긴 문장
+            break
+        clubs.append([line, 0])
+    out = {}
+    for name, loan in clubs:                     # 같은 클럽이 정식·임대로 모두 있으면 정식 우선
+        out[name] = min(out.get(name, 1), loan)
+    return [[n, l] for n, l in out.items()]
+
+
+def parse(page, name=None):
     """선수 상세 페이지 HTML → dict. 핵심 항목(키/몸무게)을 못 찾으면 None."""
     text = to_text(page)
-    m = re.search(r"(\d{3})\s*cm\s*(\d{2,3})\s*kg\s*(마름|보통|건장)\s*L\s*(\d)\s*[–\-]\s*R\s*(\d)", text)
+    m = re.search(r"(\d{3})\s*cm\s*(\d{2,3})\s*kg\s*(마름|보통|건장)\s*(\(고유\))?\s*L\s*(\d)\s*[–\-]\s*R\s*(\d)", text)
     if not m:
         return None
     out = {"height": int(m.group(1)), "weight": int(m.group(2)), "body": m.group(3),
-           "foot_l": int(m.group(4)), "foot_r": int(m.group(5))}
+           "body_unique": 1 if m.group(4) else 0,
+           "foot_l": int(m.group(5)), "foot_r": int(m.group(6))}
     stats = {}
     start = text.find("속력")
     seg = text[start:] if start >= 0 else text
-    for name in STATS:
-        pat = (r"(?<!GK )" if not name.startswith("GK") else "") + re.escape(name) + r"\s*\n\s*(\d{1,3})\b"
+    for stat in STATS:
+        pat = (r"(?<!GK )" if not stat.startswith("GK") else "") + re.escape(stat) + r"\s*\n\s*(\d{1,3})\b"
         sm = re.search(pat, seg)
         if sm:
-            stats[name] = int(sm.group(1))
+            stats[stat] = int(sm.group(1))
     out["stats"] = stats
     om = re.search(r"\b(" + POSITIONS + r")\s*\n?\s*(\d{2,3})\b", text[:m.start()][-400:])
     out["main_pos"], out["ovr"] = (om.group(1), int(om.group(2))) if om else (None, None)
@@ -97,7 +122,11 @@ def parse(page):
     out["traits"] = traits
     out["main_foot"] = main_foot(page, out["foot_l"], out["foot_r"]) or "?"  # ?: 판단 불가 (다시 받지 않음)
     pm = re.search(r"급여\s*[:：]?\s*\n?\s*(\d{1,2})\b", text)
+    if not pm and name:
+        # 카드 머리말 '126 ST 1 엘링 홀란 34' 에서 이름 바로 뒤 숫자가 급여
+        pm = re.search(re.escape(name) + r"\s*\n\s*(\d{1,2})\s*\n", text[:m.start()])
     out["pay"] = int(pm.group(1)) if pm else -1          # -1: 페이지에서 못 찾음 (다시 받지 않음)
+    out["clubs"] = parse_clubs(text)
     return out
 
 
@@ -116,7 +145,8 @@ async def main():
                                      headers={"User-Agent": "Mozilla/5.0 (fc-combo stats)"}) as c:
             r = await c.get(URL, params={"spid": a.test})
         print(f"[test] HTTP {r.status_code}, 최종 주소 {r.url}")
-        print(json.dumps(parse(r.text), ensure_ascii=False, indent=1))
+        row = connect().execute("SELECT name FROM meta_player WHERE sp_id=?", (a.test,)).fetchone()
+        print(json.dumps(parse(r.text, row[0] if row else None), ensure_ascii=False, indent=1))
         return
 
     con = connect()
@@ -128,18 +158,23 @@ async def main():
     remaining = con.execute(
         "SELECT COUNT(*) FROM (SELECT p.sp_id FROM players p LEFT JOIN card_info c ON c.sp_id = p.sp_id "
         "WHERE p.pos != 28 AND (c.sp_id IS NULL OR c.fetched_at < ? "
-        "OR (c.ok = 0 AND c.fetched_at < ?) OR (c.ok = 1 AND (c.main_foot IS NULL OR c.pay IS NULL) AND c.fetched_at < ?)) "
+        "OR (c.ok = 0 AND c.fetched_at < ?) OR (c.ok = 1 AND (c.main_foot IS NULL OR c.pay IS NULL OR c.clubs IS NULL) AND c.fetched_at < ?)) "
         "GROUP BY p.sp_id HAVING COUNT(*) >= ?)", cond_args).fetchone()[0]
     print(f"[cards] 받아야 할 카드 {remaining}장 중 이번에 최대 {min(remaining, a.max)}장")
     todo = [r[0] for r in con.execute(
         "SELECT p.sp_id FROM players p LEFT JOIN card_info c ON c.sp_id = p.sp_id "
         "WHERE p.pos != 28 AND (c.sp_id IS NULL OR c.fetched_at < ? "
-        "OR (c.ok = 0 AND c.fetched_at < ?) OR (c.ok = 1 AND (c.main_foot IS NULL OR c.pay IS NULL) AND c.fetched_at < ?)) "
+        "OR (c.ok = 0 AND c.fetched_at < ?) OR (c.ok = 1 AND (c.main_foot IS NULL OR c.pay IS NULL OR c.clubs IS NULL) AND c.fetched_at < ?)) "
         "GROUP BY p.sp_id HAVING COUNT(*) >= ? ORDER BY COUNT(*) DESC LIMIT ?",
         (*cond_args, a.max))]
     if not todo:
         print("[cards] 새로 받을 카드 없음")
         return
+    names = {}
+    for i in range(0, len(todo), 500):
+        part = todo[i:i + 500]
+        names.update(con.execute(f"SELECT sp_id, name FROM meta_player WHERE sp_id IN ({','.join('?' * len(part))})",
+                                 part).fetchall())
     ok = fail = streak = 0
     started = time.time()
     async with httpx.AsyncClient(timeout=20, follow_redirects=True,
@@ -150,7 +185,7 @@ async def main():
                 break
             try:
                 r = await c.get(URL, params={"spid": sp})
-                info = parse(r.text) if r.status_code == 200 else None
+                info = parse(r.text, names.get(sp)) if r.status_code == 200 else None
             except httpx.HTTPError:
                 info = None
             if info:
@@ -158,12 +193,14 @@ async def main():
                 streak = 0
                 if ok == 1:
                     print(f"[cards] 첫 파싱 예시 {sp}: 키 {info['height']} 몸무게 {info['weight']} {info['body']} "
-                          f"L{info['foot_l']}-R{info['foot_r']} 주발 {info['main_foot']} 급여 {info['pay']} OVR {info['ovr']} 능력치 {len(info['stats'])}개 특성 {info['traits']}")
-                con.execute("INSERT OR REPLACE INTO card_info VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                          f"{'(고유) ' if info['body_unique'] else ''}L{info['foot_l']}-R{info['foot_r']} 주발 {info['main_foot']} 급여 {info['pay']} "
+                          f"클럽 {[c[0] for c in info['clubs']][:4]} OVR {info['ovr']} 능력치 {len(info['stats'])}개 특성 {info['traits']}")
+                con.execute("INSERT OR REPLACE INTO card_info VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                             (sp, 1, info["ovr"], info["main_pos"], info["height"], info["weight"],
                              info["body"], info["foot_l"], info["foot_r"],
                              json.dumps(info["stats"], ensure_ascii=False),
-                             json.dumps(info["traits"], ensure_ascii=False), time.time(), info["main_foot"], info["pay"]))
+                             json.dumps(info["traits"], ensure_ascii=False), time.time(), info["main_foot"], info["pay"],
+                             json.dumps(info["clubs"], ensure_ascii=False), info["body_unique"]))
             else:
                 fail += 1
                 streak += 1

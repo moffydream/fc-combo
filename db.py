@@ -32,7 +32,9 @@ CREATE TABLE IF NOT EXISTS players(
   grade INTEGER,
   rating REAL,
   goal INTEGER,
-  assist INTEGER
+  assist INTEGER,
+  shoot INTEGER, eff_shoot INTEGER, pass_try INTEGER, pass_succ INTEGER,
+  tackle INTEGER, intercept INTEGER, block INTEGER
 );
 CREATE INDEX IF NOT EXISTS ix_players_sp ON players(sp_id, pos);
 CREATE INDEX IF NOT EXISTS ix_players_team ON players(match_id, side, pos);
@@ -65,10 +67,14 @@ def connect(path=None):
         con.execute("ALTER TABLE crawl_users ADD COLUMN focus INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
-    try:
-        con.execute("ALTER TABLE meta_season ADD COLUMN img TEXT")
-    except sqlite3.OperationalError:
-        pass
+    for tbl, col in (("meta_season", "img TEXT"),
+                     ("players", "shoot INTEGER"), ("players", "eff_shoot INTEGER"),
+                     ("players", "pass_try INTEGER"), ("players", "pass_succ INTEGER"),
+                     ("players", "tackle INTEGER"), ("players", "intercept INTEGER"), ("players", "block INTEGER")):
+        try:
+            con.execute(f"ALTER TABLE {tbl} ADD COLUMN {col}")
+        except sqlite3.OperationalError:
+            pass
     # 한도 초과로 조회 실패한 경기는 다시 조회하도록 제외 목록에서 뺌
     con.execute("DELETE FROM skipped WHERE reason='상세 조회 실패'")
     con.commit()

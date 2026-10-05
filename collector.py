@@ -201,7 +201,9 @@ def parse_detail(d):
         for p in starters:
             st = p.get("status") or {}
             players.append((side, p["spId"], p["spPosition"], p.get("spGrade") or 0,
-                            st.get("spRating") or 0, st.get("goal") or 0, st.get("assist") or 0))
+                            st.get("spRating") or 0, st.get("goal") or 0, st.get("assist") or 0,
+                            st.get("shoot"), st.get("effectiveShoot"), st.get("passTry"), st.get("passSuccess"),
+                            st.get("tackle"), st.get("intercept"), st.get("block")))
     teams[0]["ga"], teams[1]["ga"] = teams[1]["gf"], teams[0]["gf"]
     teams[0]["opp"], teams[1]["opp"] = teams[1]["avg_grade"], teams[0]["avg_grade"]
     return (dict(match_id=d["matchId"], date=d.get("matchDate"), type=d.get("matchType")),
@@ -221,7 +223,8 @@ def save(con, match_id, detail):
         con.execute("INSERT OR IGNORE INTO teams VALUES(?,?,?,?,?,?,?,?,?)",
                     (m["match_id"], t["side"], t["ouid"], t["result"], t["gf"], t["ga"],
                      t["formation"], t["avg_grade"], t["opp"]))
-    con.executemany("INSERT INTO players VALUES(?,?,?,?,?,?,?,?)",
+    con.executemany("INSERT INTO players(match_id, side, sp_id, pos, grade, rating, goal, assist, shoot, eff_shoot, "
+                    "pass_try, pass_succ, tackle, intercept, block) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                     [(m["match_id"], *p) for p in players])
     return True
 
