@@ -101,6 +101,7 @@ async def main():
     ap.add_argument("--rps", type=float, default=1.0, help="초당 요청 수 (데이터센터 부담을 줄이기 위해 낮게)")
     ap.add_argument("--min-games", type=int, default=20, help="이 이상 출전한 카드만 대상")
     ap.add_argument("--refresh-days", type=float, default=30)
+    ap.add_argument("--minutes", type=float, default=0, help="이 시간이 지나면 받던 것까지 저장하고 종료 (0=제한 없음)")
     ap.add_argument("--test", type=int, help="spid 하나만 받아서 파싱 결과를 출력하고 종료 (점검용)")
     a = ap.parse_args()
 
@@ -117,6 +118,13 @@ async def main():
     migrate(con)
     stale = time.time() - a.refresh_days * 86400
     # 출전이 많은 카드부터, 정보가 없거나 오래된 것만
+    cond_args = (stale, time.time() - 86400, time.time() - 7 * 86400, a.min_games)
+    remaining = con.execute(
+        "SELECT COUNT(*) FROM (SELECT p.sp_id FROM players p LEFT JOIN card_info c ON c.sp_id = p.sp_id "
+        "WHERE p.pos NOT IN (0, 28) AND (c.sp_id IS NULL OR c.fetched_at < ? "
+        "OR (c.ok = 0 AND c.fetched_at < ?) OR (c.ok = 1 AND c.main_foot IS NULL AND c.fetched_at < ?)) "
+        "GROUP BY p.sp_id HAVING COUNT(*) >= ?)", cond_args).fetchone()[0]
+    print(f"[cards] 받아야 할 카드 {remaining}장 중 이번에 최대 {min(remaining, a.max)}장")
     todo = [r[0] for r in con.execute(
         "SELECT p.sp_id FROM players p LEFT JOIN card_info c ON c.sp_id = p.sp_id "
         "WHERE p.pos NOT IN (0, 28) AND (c.sp_id IS NULL OR c.fetched_at < ? "
@@ -126,10 +134,14 @@ async def main():
     if not todo:
         print("[cards] 새로 받을 카드 없음")
         return
-    ok = fail = 0
+    ok = fail = streak = 0
+    started = time.time()
     async with httpx.AsyncClient(timeout=20, follow_redirects=True,
                                  headers={"User-Agent": "Mozilla/5.0 (fc-combo stats)"}) as c:
         for i, sp in enumerate(todo):
+            if a.minutes and time.time() - started > a.minutes * 60:
+                print(f"[cards] 시간 제한({a.minutes:.0f}분) 도달, 여기까지 저장합니다")
+                break
             try:
                 r = await c.get(URL, params={"spid": sp})
                 info = parse(r.text) if r.status_code == 200 else None
@@ -137,6 +149,7 @@ async def main():
                 info = None
             if info:
                 ok += 1
+                streak = 0
                 if ok == 1:
                     print(f"[cards] 첫 파싱 예시 {sp}: 키 {info['height']} 몸무게 {info['weight']} {info['body']} "
                           f"L{info['foot_l']}-R{info['foot_r']} 주발 {info['main_foot']} OVR {info['ovr']} 능력치 {len(info['stats'])}개 특성 {info['traits']}")
@@ -147,10 +160,14 @@ async def main():
                              json.dumps(info["traits"], ensure_ascii=False), time.time(), info["main_foot"]))
             else:
                 fail += 1
+                streak += 1
                 con.execute("INSERT OR REPLACE INTO card_info(sp_id, ok, fetched_at) VALUES(?,?,?)",
                             (sp, 0, time.time()))
                 if fail >= 10 and ok == 0:
                     print("[cards] 처음 10건이 모두 실패해서 중단합니다. 페이지 구조가 바뀌었거나 접근이 막혔을 수 있습니다.")
+                    break
+                if streak >= 20:
+                    print("[cards] 20건 연속 실패해서 중단합니다. 요청이 차단됐을 수 있으니 속도를 낮춰 다음에 이어 받으세요.")
                     break
             if i % 50 == 49:
                 con.commit()
