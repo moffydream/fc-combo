@@ -68,7 +68,10 @@
     const p = w / n, den = 1 + z * z / n, c = p + z * z / (2 * n);
     return (c - z * Math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))) / den;
   }
-  const seasonOf = sp => idx.seasons[Math.floor(sp / 1e6)] || String(Math.floor(sp / 1e6));
+  // index.json의 시즌 정보는 [이름, 아이콘 주소] (이전 빌드는 이름 문자열만)
+  const seasonRec = sp => idx.seasons[Math.floor(sp / 1e6)];
+  const seasonOf = sp => { const r = seasonRec(sp); return r ? (Array.isArray(r) ? r[0] : r) : String(Math.floor(sp / 1e6)); };
+  const seasonImg = sp => { const r = seasonRec(sp); return Array.isArray(r) ? r[1] || null : null; };
   function formationLabel(sig) {
     const codes = sig.split("-").map(Number);
     const counts = LINES.map(([a, b]) => codes.filter(c => c >= a && c <= b).length);
@@ -159,7 +162,7 @@
       const prat = T.rn - a.rn > 0 ? (T.rs - a.rs) / (T.rn - a.rn) : null;
       const sh = a.n / (a.n + K), wr = a.w / a.n, rat = a.rn ? a.rs / a.rn : null;
       rows.push({
-        sp_id: sp, name: nameOf.get(sp) || `#${sp}`, season: seasonOf(sp),
+        sp_id: sp, name: nameOf.get(sp) || `#${sp}`, season: seasonOf(sp), season_img: seasonImg(sp),
         n: a.n, w: a.w, d: a.d, l: a.n - a.w - a.d, grade: a.gs / a.n,
         win_rate: wr, peer_win: pwr, win_diff: sh * (wr - pwr), adj_diff: 100 * sh * (a.adj / a.n - padj),
         rating: rat, peer_rating: prat, rating_diff: rat != null && prat != null ? sh * (rat - prat) : null,
@@ -180,12 +183,27 @@
 
     /* 이상치 탭: 같은 포지션·포메이션 계열·강화 구간 안에서 동료 대비 튀는 선수 */
     async "/api/outliers"(p) {
-      const { T, rows } = await playerStats(p);
+      const [{ T, rows }, cards] = await Promise.all([playerStats(p), loadCards()]);
       if (!T) return { peers: null, rows: [] };
       const key = p.sort || "adj_diff", dir = p.dir === "asc" ? 1 : -1;
       rows.sort((a, b) => ((a[key] ?? 0) - (b[key] ?? 0)) * dir);
+      rows.forEach((r, i) => {
+        r.rank = i + 1;
+        const c = cards && cards.c[r.sp_id];
+        if (c) r.profile = { ovr: c[0], height: c[1], weight: c[2], foot_l: c[4], foot_r: c[5], main_foot: c[8] ?? -1, pay: c[9] ?? null };
+      });
+      // 이름 검색: 순위는 전체 기준으로 유지한 채 일치하는 선수만 보여 줌 (최소 경기 미달이면 별도 표시)
+      const q = String(p.q || "").trim().toLowerCase();
+      let shown = rows.slice(0, +p.limit || 50), below = [];
+      if (q) {
+        shown = rows.filter(r => r.name.toLowerCase().includes(q));
+        const all = await playerStats({ ...p, min_games: 1 });
+        const have = new Set(shown.map(r => r.sp_id));
+        below = all.rows.filter(r => r.name.toLowerCase().includes(q) && !have.has(r.sp_id))
+          .map(r => ({ sp_id: r.sp_id, name: r.name, season: r.season, season_img: r.season_img, n: r.n }));
+      }
       return { peers: { n: T.n, win_rate: T.w / T.n, rating: T.rn ? T.rs / T.rn : null, players: T.players },
-               rows: rows.slice(0, +p.limit || 50), total: rows.length };
+               rows: shown, total: rows.length, query: q, below_min: below };
     },
 
     /* 공통점 탭: 성적이 좋은 선수들이 공유하는 카드 특징 */
@@ -217,7 +235,8 @@
 
       const num = [["키", c => c[1]], ["몸무게", c => c[2]], ["약발", c => Math.min(c[4], c[5])]];
       if (p.ovr_adjust !== "1") num.unshift(["OVR", c => c[0]]);
-      cards.stats.forEach((n, i) => num.push([n, c => c[6][i]]));
+      const isGK = +p.pos === 0;
+      cards.stats.forEach((n, i) => { if (n.startsWith("GK") === isGK) num.push([n, c => c[6][i]]); });
 
       for (const [name, f] of num) {
         const xs = pts.filter(x => f(x.c) != null).map(x => ({ v: f(x.c), y: x.y }));
@@ -264,7 +283,7 @@
     "/api/player"(p) {
       const sp = +p.sp;
       const positions = idx.anchors.filter(a => a[0] === sp).map(a => [POS[a[1]], a[2]]).sort((a, b) => b[1] - a[1]);
-      return { sp_id: sp, name: nameOf.get(sp) || idx.names[sp] || `#${sp}`, season: seasonOf(sp),
+      return { sp_id: sp, name: nameOf.get(sp) || idx.names[sp] || `#${sp}`, season: seasonOf(sp), season_img: seasonImg(sp),
                games: positions.reduce((s, x) => s + x[1], 0), positions };
     },
 
@@ -278,7 +297,7 @@
       for (const [sp, pos, n] of idx.anchors) {
         const name = idx.names[sp] || "";
         if (!name.toLowerCase().includes(q)) continue;
-        const e = by.get(sp) || { sp_id: sp, name, season: seasonOf(sp), games: 0, positions: [] };
+        const e = by.get(sp) || { sp_id: sp, name, season: seasonOf(sp), season_img: seasonImg(sp), games: 0, positions: [] };
         e.games += n; e.positions.push([POS[pos], n]); by.set(sp, e);
       }
       return [...by.values()].map(e => (e.positions.sort((a, b) => b[1] - a[1]), e))
@@ -313,7 +332,7 @@
       const pkey = sp => mergeS ? base(sp) : sp;
       const label = k => mergeS
         ? { sp_id: k, name: nameOf.get(k) || [...nameOf].find(([sp]) => base(sp) === k)?.[1] || `#${k}`, season: "전 시즌" }
-        : { sp_id: k, name: nameOf.get(k) || `#${k}`, season: seasonOf(k) };
+        : { sp_id: k, name: nameOf.get(k) || `#${k}`, season: seasonOf(k), season_img: seasonImg(k) };
       if (mergeS) for (const [sp, n] of nameOf) if (!nameOf.has(base(sp))) nameOf.set(base(sp), n);
 
       const slotNames = slots.map(c => POS[c]);

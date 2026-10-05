@@ -48,7 +48,8 @@ h1{font:700 2rem/1 var(--num);letter-spacing:.01em;margin:0}
 .tabs{display:flex;gap:.25rem;margin-right:auto;margin-left:1.5rem}
 .tabs button{background:none;border:1px solid transparent;border-radius:6px;padding:.35rem .8rem;cursor:pointer;color:var(--muted);font-weight:500}
 .tabs button[aria-pressed="true"]{background:var(--panel);border-color:var(--rule);color:var(--ink)}
-#oTable td:first-child{white-space:nowrap}
+#oTable td:nth-child(2),#oTable th:nth-child(2),#oTable td:nth-child(3),#oTable th:nth-child(3){text-align:left;white-space:nowrap}
+#oTable td:first-child{width:2.5rem}
 @media (max-width:600px){.tabs{margin-left:0}}
 section.outlier{padding:1.25rem clamp(1rem,3vw,2rem) 3rem}
 .peers{display:flex;flex-wrap:wrap;gap:.25rem 2rem;align-items:baseline;padding-bottom:1rem;border-bottom:2px solid var(--ink);margin-bottom:.25rem}
@@ -120,6 +121,9 @@ td.num{font:600 1.08rem var(--num);white-space:nowrap}
 .combo{display:flex;flex-direction:column;gap:.1rem}
 .combo div{display:flex;gap:.4rem;align-items:baseline;white-space:nowrap}
 .combo .pos{font:600 .78rem var(--num);color:var(--muted);width:2.3rem}
+.sicon{height:1.15em;width:auto;vertical-align:-.2em;border-radius:2px}
+.prof{font-size:.78rem;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
+.prof b{color:var(--ink);font-weight:600}
 .tag{font-size:.7rem;padding:.02rem .35rem;border-radius:4px;background:var(--board);color:var(--muted);border:1px solid var(--rule)}
 .bar{position:relative;display:inline-block;width:4.5rem;height:.45rem;background:var(--board);border-radius:3px;vertical-align:middle;margin-left:.45rem}
 .bar i{position:absolute;left:0;top:0;bottom:0;border-radius:3px;background:var(--chalk)}
@@ -266,7 +270,7 @@ details.help dd{margin:0}
         <dt>OVR 영향 제거</dt><dd>OVR이 높은 카드가 잘하는 건 당연하므로, OVR로 설명되는 몫을 빼고 남은 성과로 분석합니다. 켜 두면 'OVR 대비 잘하는 카드'의 공통점을, 끄면 '그냥 잘하는 카드'의 공통점을 봅니다.</dd>
         <dt>기준값</dt><dd>각 능력치마다 '이 값 이상과 미만'으로 나눴을 때 성과 차이가 가장 뚜렷한 지점을 자동으로 찾은 것입니다.</dd>
         <dt>확신도</dt><dd>수십 개 특징을 한꺼번에 검사하므로 몇 개는 우연히 뚜렷해 보일 수 있습니다. 그래서 확신도 기준을 일반보다 엄격하게 잡았습니다. '강함'이 아닌 결과는 가설로만 보세요.</dd>
-        <dt>한계</dt><dd>능력치는 데이터센터의 1강·적응도 1 기준입니다. 고유 참여도와 개인기 등급은 데이터센터 페이지에서 읽을 수 없어 빠져 있습니다. 상관관계이지 인과관계는 아닙니다.</dd>
+        <dt>한계</dt><dd>능력치는 데이터센터의 1강·적응도 1 기준입니다. 고유 참여도와 개인기 등급은 데이터센터 페이지에서 읽을 수 없어 빠져 있습니다. 골키퍼는 GK 능력치만, 필드 포지션은 필드 능력치만 비교합니다. 상관관계이지 인과관계는 아닙니다.</dd>
       </dl>
     </details>
   </section>
@@ -274,6 +278,10 @@ details.help dd{margin:0}
 
 <div id="viewOutlier" hidden>
   <div class="controls">
+    <div class="field">
+      <label for="oQ">선수 검색</label>
+      <input id="oQ" type="search" autocomplete="off" placeholder="이름 일부 입력">
+    </div>
     <div class="field">
       <label for="oPos">포지션</label>
       <select id="oPos"></select>
@@ -321,7 +329,7 @@ details.help dd{margin:0}
         <dt>체급 보정 차이</dt><dd>양 팀 평균 강화로 예상되는 승점 대비 실제 승점이 동료들보다 얼마나 높은지(%p)입니다. 비싼 스쿼드에 들어가서 이긴 몫을 걷어낸 값이라 가장 공정한 기준입니다.</dd>
         <dt>평점 차이</dt><dd>경기 평점이 동료 평균보다 얼마나 높은지입니다. 평점은 경기 결과의 영향을 받으므로 승률과 함께 보세요.</dd>
         <dt>확신도</dt><dd>승률 차이가 우연으로 설명되기 어려운 정도입니다. 강함은 우연일 가능성이 매우 낮다는 뜻입니다.</dd>
-        <dt>주의</dt><dd>모든 차이는 경기 수가 적을수록 0 쪽으로 줄여서 보여 줍니다. 기간 필터는 적용되지 않고 보관 기간 전체를 씁니다. 골키퍼는 포함되지 않습니다.</dd>
+        <dt>주의</dt><dd>모든 차이는 경기 수가 적을수록 0 쪽으로 줄여서 보여 줍니다. 기간 필터는 적용되지 않고 보관 기간 전체를 씁니다.</dd>
       </dl>
     </details>
   </section>
@@ -341,6 +349,9 @@ const S={anchor:null,pos:null,formation:null,slots:[],data:null,sort:{key:"shrun
 
 const pct=x=>x==null?"–":(x*100).toFixed(1);
 const signed=x=>{const v=x.toFixed(1);return v==="-0.0"||v==="0.0"?"0.0":(x>0?"+":"")+v};
+const stag=o=>o.season_img&&o.season!=="전 시즌"
+  ?`<img class="sicon" src="${esc(o.season_img)}" alt="${esc(o.season)}" title="${esc(o.season)}" loading="lazy" onerror="this.outerHTML='<span class=&quot;tag&quot;>'+this.alt+'</span>'">`
+  :`<span class="tag">${esc(o.season)}</span>`;
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 async function api(path,params={}){
@@ -375,7 +386,7 @@ $("#q").addEventListener("input",e=>{
     const list=await api("/api/players",{q}).catch(()=>[]);
     const ul=$("#results");
     ul.innerHTML=list.length?list.map((p,i)=>`<li><button data-i="${i}">
-      <span>${esc(p.name)} <span class="tag">${esc(p.season)}</span></span>
+      <span>${esc(p.name)} ${stag(p)}</span>
       <span class="sub">${p.games.toLocaleString()}경기${p.positions[0]?`, 주로 ${p.positions[0][0]}`:""}</span></button></li>`).join("")
       :`<li class="sub" style="padding:.5rem .6rem">일치하는 선수가 없습니다.</li>`;
     ul.hidden=false;
@@ -483,7 +494,7 @@ function render(){
   const d=S.data,b=d.baseline;
   if(!b){renderEmpty("조건에 맞는 경기가 없습니다","기간이나 강화 조건을 넓혀 보세요.");return}
   $("#baseline").innerHTML=`<div class="baseline">
-    <div class="who">${esc(S.anchor.name)} <span class="tag">${esc(d.merge_season?"전 시즌":S.anchor.season)}</span>
+    <div class="who">${esc(S.anchor.name)} ${d.merge_season?`<span class="tag">전 시즌</span>`:stag(S.anchor)}
       ${POS[S.pos]}, ${S.formation.label} <span class="sub" style="color:var(--muted);font-weight:400">(${S.formation.positions.join(" ")})</span></div>
     <div class="stat"><b>${b.n.toLocaleString()}</b><span>경기</span></div>
     <div class="stat"><b>${pct(b.win_rate)}</b><span>% 기준 승률</span></div>
@@ -513,7 +524,7 @@ function renderTable(){
   const body=rows.map(r=>{
     const thin=r.n<30?" thin":"";
     return `<tr>
-    <td><div class="combo">${r.players.map((p,i)=>`<div>${d.mirror?"":`<span class="pos">${d.slots[i]}</span>`}${esc(p.name)} <span class="tag">${esc(p.season)}</span></div>`).join("")}</div></td>
+    <td><div class="combo">${r.players.map((p,i)=>`<div>${d.mirror?"":`<span class="pos">${d.slots[i]}</span>`}${esc(p.name)} ${stag(p)}</div>`).join("")}</div></td>
     <td class="num${thin}">${r.n.toLocaleString()}</td>
     <td class="num">${r.w}-${r.d}-${r.l}</td>
     <td class="num${thin}">${pct(r.win_rate)}</td>
@@ -545,9 +556,9 @@ function renderMatrix(){
     <p class="note">가장 많이 쓰인 선수끼리 교차한 표입니다. 색은 궁합(파랑은 개인 성적으로 예상한 것보다 함께 더 이김), 큰 숫자는 추정 승률, 작은 숫자는 경기 수입니다. 최소 경기 조건과 관계없이 모든 교차를 보여 주므로 표본이 작은 칸은 참고만 하세요.</p>
     <div class="tablewrap"><div class="grid" style="grid-template-columns:minmax(9rem,1.3fr) repeat(${cols},minmax(4.5rem,1fr))">
     <div class="h">${S.data.slots[0]} ↓  ${S.data.slots[1]} →</div>`;
-  html+=m.cols.map(c=>`<div class="h">${esc(c.name)}<br>${esc(c.season)}</div>`).join("");
+  html+=m.cols.map(c=>`<div class="h"><span>${esc(c.name)}<br>${stag(c)}</span></div>`).join("");
   m.rows.forEach((r,i)=>{
-    html+=`<div class="rh"><span>${esc(r.name)}</span><span class="tag" style="align-self:flex-start">${esc(r.season)}</span></div>`;
+    html+=`<div class="rh"><span>${esc(r.name)}</span><span style="align-self:flex-start">${stag(r)}</span></div>`;
     html+=m.cells[i].map(c=>c?`<div class="cell" style="background:${cellColor(c.synergy*100*2)}" title="궁합 ${signed(c.synergy*100)}%p, 체급 보정 ${signed(c.adj_pp)}%p">
       <b>${pct(c.shrunk)}</b><small>${c.n}경기</small></div>`:`<div class="cell empty" aria-label="기록 없음"></div>`).join("");
   });
@@ -563,10 +574,11 @@ function switchView(v){
   if(v==="common"&&!$("#cPos").options.length) initCommon();
 }
 function initOutlier(){
-  const order=[25,24,26,21,20,22,23,27,18,17,19,14,13,15,12,16,10,9,11,3,7,2,8,5,4,6,1];
+  const order=[25,24,26,21,20,22,23,27,18,17,19,14,13,15,12,16,10,9,11,3,7,2,8,5,4,6,1,0];
   $("#oPos").innerHTML=order.map(c=>`<option value="${c}" ${c===17?"selected":""}>${POS[c]}</option>`).join("");
   $("#oPos").onchange=loadOutlierMeta;
   ["#oForm","#oGmin","#oGmax","#oMin","#oSort","#oDir"].forEach(s=>$(s).addEventListener("change",loadOutliers));
+  let qt; $("#oQ").addEventListener("input",()=>{clearTimeout(qt);qt=setTimeout(loadOutliers,250)});
   loadOutlierMeta();
 }
 async function loadOutlierMeta(){
@@ -579,7 +591,7 @@ async function loadOutliers(){
   const my=++oseq; $("#oTable").style.opacity=.5;
   try{
     const d=await api("/api/outliers",{pos:$("#oPos").value,form:$("#oForm").value,gmin:$("#oGmin").value,
-      gmax:$("#oGmax").value,min_games:$("#oMin").value,sort:$("#oSort").value,dir:$("#oDir").value});
+      gmax:$("#oGmax").value,min_games:$("#oMin").value,sort:$("#oSort").value,dir:$("#oDir").value,q:$("#oQ").value});
     if(my!==oseq)return; renderOutliers(d);
   }catch(e){ if(my===oseq){$("#oPeers").innerHTML="";$("#oTable").innerHTML=`<div class="empty-state"><strong>불러오지 못했습니다</strong>${esc(e.message)}</div>`;} }
   finally{ if(my===oseq) $("#oTable").style.opacity=1; }
@@ -594,14 +606,22 @@ function renderOutliers(d){
     <div class="stat"><b>${pct(P.win_rate)}</b><span>% 평균 승률</span></div>
     <div class="stat"><b>${P.rating?P.rating.toFixed(2):"–"}</b><span>평균 평점</span></div>
     <div class="stat"><b>${d.rows.length}</b><span>명 표시 (최소 경기 충족 ${d.total}명)</span></div></div>`;
-  if(!d.rows.length){$("#oTable").innerHTML=`<div class="empty-state"><strong>최소 경기 수를 넘는 선수가 없습니다</strong>최소 경기를 낮추거나 조건을 넓혀 보세요.</div>`;return}
+  const belowMsg=d.below_min&&d.below_min.length?`<p class="note">최소 경기(${$("#oMin").value}) 미달로 순위에서 빠진 선수: ${d.below_min.slice(0,10).map(b=>`${esc(b.name)} ${stag(b)} ${b.n}경기`).join(", ")}</p>`:"";
+  if(!d.rows.length){$("#oTable").innerHTML=d.query
+    ?`<div class="empty-state"><strong>'${esc(d.query)}'와 일치하는 선수가 이 조건에 없습니다</strong>포지션이나 포메이션, 강화 조건을 바꿔 보세요.</div>${belowMsg}`
+    :`<div class="empty-state"><strong>최소 경기 수를 넘는 선수가 없습니다</strong>최소 경기를 낮추거나 조건을 넓혀 보세요.</div>`;return}
+  const prof=p=>{if(!p)return`<span class="prof">정보 없음</span>`;
+    const fl=p.main_foot===0?`<b>${p.foot_l}</b>`:p.foot_l, fr=p.main_foot===1?`<b>${p.foot_r}</b>`:p.foot_r;
+    return `<span class="prof">${p.pay!=null?`급여 <b>${p.pay}</b> · `:""}${p.height}cm ${p.weight}kg · ${fl}/${fr}</span>`};
   const conf=z=>{const a=Math.abs(z);return a>=3?`<span class="conf hi">강함</span>`:a>=2?`<span class="conf">보통</span>`:`<span class="conf" style="opacity:.6">약함</span>`};
   const cls=v=>v>=0?"pos-v":"neg-v";
   $("#oTable").innerHTML=`<div class="tablewrap"><table><thead><tr>
-    <th>선수</th><th>경기</th><th>승-무-패</th><th>평균 강화</th><th>승률</th><th>승률 차이</th>
+    <th>${d.query?"순위":""}</th><th>선수</th><th>프로필</th><th>경기</th><th>승-무-패</th><th>평균 강화</th><th>승률</th><th>승률 차이</th>
     <th>체급 보정 차이</th><th>평균 평점</th><th>평점 차이</th><th>확신도</th></tr></thead><tbody>
     ${d.rows.map(r=>`<tr>
-      <td><button class="linkbtn" data-sp="${r.sp_id}">${esc(r.name)}</button> <span class="tag">${esc(r.season)}</span></td>
+      <td class="num" style="color:var(--muted)">${r.rank}</td>
+      <td><button class="linkbtn" data-sp="${r.sp_id}">${esc(r.name)}</button> ${stag(r)}</td>
+      <td>${prof(r.profile)}</td>
       <td class="num${r.n<60?" thin":""}">${r.n.toLocaleString()}</td>
       <td class="num">${r.w}-${r.d}-${r.l}</td>
       <td class="num" style="color:var(--muted)">${r.grade.toFixed(1)}</td>
@@ -609,10 +629,11 @@ function renderOutliers(d){
       <td class="num ${cls(r.win_diff)}">${signed(r.win_diff*100)}</td>
       <td class="num ${cls(r.adj_diff)}">${signed(r.adj_diff)}</td>
       <td class="num">${r.rating!=null?r.rating.toFixed(2):"–"}</td>
-      <td class="num ${r.rating_diff!=null?cls(r.rating_diff):""}">${r.rating_diff==null?"–":Math.abs(r.rating_diff)<0.005?"0.00":(r.rating_diff>0?"+":"")+r.rating_diff.toFixed(2)}</td>
+      <td class="num ${r.rating_diff!=null&&Math.abs(r.rating_diff)>=0.005?cls(r.rating_diff):""}">${r.rating_diff==null?"–":Math.abs(r.rating_diff)<0.005?"0.00":(r.rating_diff>0?"+":"")+r.rating_diff.toFixed(2)}</td>
       <td>${conf(r.z)}</td></tr>`).join("")}
     </tbody></table></div>
-    <p class="note" style="margin-top:.6rem">선수 이름을 누르면 그 선수를 기준으로 조합 분석을 엽니다. 흐린 숫자는 60경기 미만입니다.</p>`;
+    ${belowMsg}
+    <p class="note" style="margin-top:.6rem">선수 이름을 누르면 그 선수를 기준으로 조합 분석을 엽니다. 맨 앞 숫자는 현재 기준·방향의 전체 순위(${d.total}명 중)이고, 프로필의 발은 왼발/오른발 순서이며 굵은 쪽이 주발입니다. 흐린 숫자는 60경기 미만입니다.</p>`;
   $("#oTable").querySelectorAll(".linkbtn").forEach(b=>b.onclick=async()=>{
     const pl=await api("/api/player",{sp:b.dataset.sp});
     if(!pl.positions.length){alert("이 선수는 기준 선수로 쓸 만큼 경기 수가 쌓이지 않았습니다.");return}
@@ -624,7 +645,7 @@ function renderOutliers(d){
 }
 
 /* ── 공통점 탭 ── */
-const POS_ORDER=[25,24,26,21,20,22,23,27,18,17,19,14,13,15,12,16,10,9,11,3,7,2,8,5,4,6,1];
+const POS_ORDER=[25,24,26,21,20,22,23,27,18,17,19,14,13,15,12,16,10,9,11,3,7,2,8,5,4,6,1,0];
 function initCommon(){
   $("#cPos").innerHTML=POS_ORDER.map(c=>`<option value="${c}" ${c===14?"selected":""}>${POS[c]}</option>`).join("");
   $("#cPos").onchange=loadCommonMeta;
