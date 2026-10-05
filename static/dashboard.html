@@ -45,6 +45,23 @@ h1{font:700 2rem/1 var(--num);letter-spacing:.01em;margin:0}
   padding:.45rem .6rem;min-height:2.3rem;font-size:.92rem;color:var(--ink)}
 .field.small input{width:5.5rem}
 .search{position:relative;min-width:min(20rem,100%)}
+.tabs{display:flex;gap:.25rem;margin-right:auto;margin-left:1.5rem}
+.tabs button{background:none;border:1px solid transparent;border-radius:6px;padding:.35rem .8rem;cursor:pointer;color:var(--muted);font-weight:500}
+.tabs button[aria-pressed="true"]{background:var(--panel);border-color:var(--rule);color:var(--ink)}
+#oTable td:first-child{white-space:nowrap}
+@media (max-width:600px){.tabs{margin-left:0}}
+section.outlier{padding:1.25rem clamp(1rem,3vw,2rem) 3rem}
+.peers{display:flex;flex-wrap:wrap;gap:.25rem 2rem;align-items:baseline;padding-bottom:1rem;border-bottom:2px solid var(--ink);margin-bottom:.25rem}
+.peers .stat{display:flex;align-items:baseline;gap:.4rem}
+.peers .stat b{font:700 2rem/1 var(--num)}
+.peers .stat span{font-size:.8rem;color:var(--muted)}
+.linkbtn{background:none;border:0;padding:0;cursor:pointer;color:var(--ink);font-weight:500;text-align:left;text-decoration:underline;text-decoration-color:var(--rule);text-underline-offset:3px}
+.linkbtn:hover{text-decoration-color:var(--ink)}
+.conf{font-size:.75rem;padding:.05rem .4rem;border-radius:4px;border:1px solid var(--rule);color:var(--muted)}
+.conf.hi{background:var(--blue-soft);color:var(--blue);border-color:transparent}
+fieldset.merge{border:1px solid var(--rule);border-radius:6px;padding:.3rem .7rem .45rem;margin:0;display:flex;gap:.9rem;flex-wrap:wrap;font-size:.85rem}
+fieldset.merge legend{font-size:.8rem;color:var(--muted);padding:0 .3rem}
+fieldset.merge label{display:flex;align-items:center;gap:.3rem;cursor:pointer;white-space:nowrap}
 .search input{width:100%}
 #results{position:absolute;z-index:5;top:100%;left:0;right:0;margin:.25rem 0 0;padding:.25rem;list-style:none;
   background:var(--panel);border:1px solid var(--rule);border-radius:8px;max-height:20rem;overflow:auto;
@@ -135,8 +152,14 @@ details.help dd{margin:0}
 <body>
 <header>
   <h1>감독모드 조합 분석</h1>
+  <nav class="tabs" aria-label="보기 전환">
+    <button data-view="combo" aria-pressed="true">조합 분석</button>
+    <button data-view="outlier" aria-pressed="false">튀는 선수</button>
+    <button data-view="common" aria-pressed="false">공통점</button>
+  </nav>
   <div id="status">데이터를 불러오는 중</div>
 </header>
+<div id="viewCombo">
 
 <div class="controls">
   <div class="field search">
@@ -167,6 +190,12 @@ details.help dd{margin:0}
     <label for="gmax">팀 평균 강화 ≤</label>
     <input id="gmax" type="number" step="0.5" min="1" max="13" placeholder="없음">
   </div>
+  <fieldset class="merge">
+    <legend>표본 묶기</legend>
+    <label><input type="checkbox" id="mForm" checked> 포메이션 계열</label>
+    <label><input type="checkbox" id="mMirror" checked> 좌우 구분 안 함</label>
+    <label><input type="checkbox" id="mSeason"> 시즌 통합</label>
+  </fieldset>
 </div>
 
 <main>
@@ -184,7 +213,9 @@ details.help dd{margin:0}
     <details class="help">
       <summary>지표 읽는 법</summary>
       <dl>
-        <dt>보정 승률</dt><dd>기준선 승률을 20경기만큼 섞은 값입니다. 표본이 적은 조합이 우연히 튀는 것을 눌러 주므로 순위는 이 값으로 매깁니다.</dd>
+        <dt>추정 승률</dt><dd>표본이 적은 조합이 우연히 튀지 않도록, 실제 승률을 예상치 쪽으로 20경기만큼 당긴 값입니다. 한 자리만 볼 때 예상치는 기준 승률이고, 두 자리를 볼 때는 두 선수 각자의 성적으로 계산한 '개인 합산 기대'입니다. 순위는 이 값으로 매깁니다.</dd>
+        <dt>궁합</dt><dd>추정 승률에서 개인 합산 기대를 뺀 값입니다. 각자 잘하는 선수라서 이기는 몫을 걷어내고, 둘이 함께일 때만 생기는 효과를 봅니다.</dd>
+        <dt>표본 묶기</dt><dd>포메이션 계열은 4-2-2-2처럼 라인 구성이 같은 배치를 하나로 봅니다. 좌우 구분 안 함은 A가 LCM, B가 RCM인 경기와 그 반대를 같은 조합으로 셉니다. 시즌 통합은 같은 선수의 다른 시즌 카드를 하나로 묶는데, 시즌마다 능력치 차이가 커서 기본은 꺼 두었습니다.</dd>
         <dt>95% 하한</dt><dd>통계적으로 '최소한 이 정도'라고 말할 수 있는 승률입니다. 기준선보다 높으면 꽤 믿을 만한 조합입니다.</dd>
         <dt>체급 보정</dt><dd>양 팀 평균 강화 차이로 예상되는 승점률 대비 실제 승점률(무승부 0.5)의 차이입니다. 비싼 조합이라 이긴 몫을 일부 걷어낸 값이라, 순수한 호흡에 더 가깝습니다.</dd>
         <dt>한계</dt><dd>넥슨 API에는 전술 설정, 팀컬러, 선수 OVR이 없습니다. 체급은 평균 강화로만 근사하므로 결과는 가설로 쓰고, 본인 스쿼드 실험으로 확인하는 편이 좋습니다.</dd>
@@ -192,6 +223,109 @@ details.help dd{margin:0}
     </details>
   </div>
 </main>
+</div>
+
+<div id="viewCommon" hidden>
+  <div class="controls">
+    <div class="field">
+      <label for="cPos">포지션</label>
+      <select id="cPos"></select>
+    </div>
+    <div class="field">
+      <label for="cForm">포메이션 계열</label>
+      <select id="cForm"></select>
+    </div>
+    <div class="field small">
+      <label for="cGmin">선수 강화 ≥</label>
+      <input id="cGmin" type="number" min="1" max="13" placeholder="없음">
+    </div>
+    <div class="field small">
+      <label for="cGmax">선수 강화 ≤</label>
+      <input id="cGmax" type="number" min="1" max="13" placeholder="없음">
+    </div>
+    <div class="field small">
+      <label for="cMin">최소 경기</label>
+      <input id="cMin" type="number" min="5" value="30">
+    </div>
+    <div class="field">
+      <label for="cOut">성과 기준</label>
+      <select id="cOut"><option value="adj_diff">체급 보정 차이</option><option value="rating_diff">평점 차이</option></select>
+    </div>
+    <fieldset class="merge">
+      <legend>보정</legend>
+      <label><input type="checkbox" id="cOvr" checked> OVR 영향 제거</label>
+    </fieldset>
+  </div>
+  <section class="outlier">
+    <div id="cSummary"></div>
+    <div id="cBody"></div>
+    <details class="help">
+      <summary>읽는 법과 한계</summary>
+      <dl>
+        <dt>무엇을 보나</dt><dd>이 포지션에서 뛴 선수 카드들을 '동료 대비 성과'로 줄 세운 뒤, 성과가 좋은 카드들이 공통으로 가진 키·체형·능력치·특성을 찾습니다.</dd>
+        <dt>OVR 영향 제거</dt><dd>OVR이 높은 카드가 잘하는 건 당연하므로, OVR로 설명되는 몫을 빼고 남은 성과로 분석합니다. 켜 두면 'OVR 대비 잘하는 카드'의 공통점을, 끄면 '그냥 잘하는 카드'의 공통점을 봅니다.</dd>
+        <dt>기준값</dt><dd>각 능력치마다 '이 값 이상과 미만'으로 나눴을 때 성과 차이가 가장 뚜렷한 지점을 자동으로 찾은 것입니다.</dd>
+        <dt>확신도</dt><dd>수십 개 특징을 한꺼번에 검사하므로 몇 개는 우연히 뚜렷해 보일 수 있습니다. 그래서 확신도 기준을 일반보다 엄격하게 잡았습니다. '강함'이 아닌 결과는 가설로만 보세요.</dd>
+        <dt>한계</dt><dd>능력치는 데이터센터의 1강·적응도 1 기준입니다. 고유 참여도와 개인기 등급은 데이터센터 페이지에서 읽을 수 없어 빠져 있습니다. 상관관계이지 인과관계는 아닙니다.</dd>
+      </dl>
+    </details>
+  </section>
+</div>
+
+<div id="viewOutlier" hidden>
+  <div class="controls">
+    <div class="field">
+      <label for="oPos">포지션</label>
+      <select id="oPos"></select>
+    </div>
+    <div class="field">
+      <label for="oForm">포메이션 계열</label>
+      <select id="oForm"><option value="">전체</option></select>
+    </div>
+    <div class="field small">
+      <label for="oGmin">선수 강화 ≥</label>
+      <input id="oGmin" type="number" min="1" max="13" placeholder="없음">
+    </div>
+    <div class="field small">
+      <label for="oGmax">선수 강화 ≤</label>
+      <input id="oGmax" type="number" min="1" max="13" placeholder="없음">
+    </div>
+    <div class="field small">
+      <label for="oMin">최소 경기</label>
+      <input id="oMin" type="number" min="5" value="30">
+    </div>
+    <div class="field">
+      <label for="oSort">기준</label>
+      <select id="oSort">
+        <option value="adj_diff">체급 보정 차이</option>
+        <option value="win_diff">승률 차이</option>
+        <option value="rating_diff">평점 차이</option>
+        <option value="z">통계적 확신도</option>
+      </select>
+    </div>
+    <div class="field">
+      <label for="oDir">방향</label>
+      <select id="oDir">
+        <option value="desc">기대 이상 (잘하는 쪽)</option>
+        <option value="asc">기대 이하 (못하는 쪽)</option>
+      </select>
+    </div>
+  </div>
+  <section class="outlier">
+    <div id="oPeers"></div>
+    <div id="oTable"></div>
+    <details class="help">
+      <summary>지표 읽는 법</summary>
+      <dl>
+        <dt>동료 집단</dt><dd>같은 포지션, 같은 포메이션 계열, 같은 강화 구간에서 뛴 다른 모든 선수입니다. 각 선수는 자기 자신을 뺀 동료 집단과 비교합니다.</dd>
+        <dt>체급 보정 차이</dt><dd>양 팀 평균 강화로 예상되는 승점 대비 실제 승점이 동료들보다 얼마나 높은지(%p)입니다. 비싼 스쿼드에 들어가서 이긴 몫을 걷어낸 값이라 가장 공정한 기준입니다.</dd>
+        <dt>평점 차이</dt><dd>경기 평점이 동료 평균보다 얼마나 높은지입니다. 평점은 경기 결과의 영향을 받으므로 승률과 함께 보세요.</dd>
+        <dt>확신도</dt><dd>승률 차이가 우연으로 설명되기 어려운 정도입니다. 강함은 우연일 가능성이 매우 낮다는 뜻입니다.</dd>
+        <dt>주의</dt><dd>모든 차이는 경기 수가 적을수록 0 쪽으로 줄여서 보여 줍니다. 기간 필터는 적용되지 않고 보관 기간 전체를 씁니다. 골키퍼는 포함되지 않습니다.</dd>
+      </dl>
+    </details>
+  </section>
+</div>
 
 <script>
 const COORD={0:[50,100],1:[50,90],2:[88,66],3:[86,80],4:[64,86],5:[50,86],6:[36,86],7:[14,80],8:[12,66],
@@ -206,7 +340,7 @@ const $=s=>document.querySelector(s);
 const S={anchor:null,pos:null,formation:null,slots:[],data:null,sort:{key:"shrunk",dir:-1},limit:25};
 
 const pct=x=>x==null?"–":(x*100).toFixed(1);
-const signed=x=>(x>0?"+":"")+x.toFixed(1);
+const signed=x=>{const v=x.toFixed(1);return v==="-0.0"||v==="0.0"?"0.0":(x>0?"+":"")+v};
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 
 async function api(path,params={}){
@@ -217,7 +351,8 @@ async function api(path,params={}){
   if(!r.ok){const e=await r.json().catch(()=>({}));throw new Error(e.detail||`요청 실패 (${r.status})`)}
   return r.json();
 }
-const filters=()=>({days:$("#days").value,gmin:$("#gmin").value,gmax:$("#gmax").value});
+const filters=()=>({days:$("#days").value,gmin:$("#gmin").value,gmax:$("#gmax").value,
+  merge_form:$("#mForm").checked?"1":"",merge_season:$("#mSeason").checked?"1":"",mirror:$("#mMirror").checked?"1":""});
 
 async function loadStatus(){
   try{
@@ -257,7 +392,8 @@ function pickAnchor(p){
   S.pos=+sel.value; loadFormations();
 }
 $("#pos").onchange=e=>{S.pos=+e.target.value;loadFormations()};
-["#days","#gmin","#gmax"].forEach(s=>$(s).addEventListener("change",()=>S.anchor&&loadFormations(true)));
+["#days","#gmin","#gmax","#mForm","#mSeason"].forEach(s=>$(s).addEventListener("change",()=>S.anchor&&loadFormations(true)));
+$("#mMirror").addEventListener("change",()=>S.formation&&loadCombos());
 $("#minGames").addEventListener("change",()=>S.formation&&loadCombos());
 
 /* 포메이션 */
@@ -271,7 +407,7 @@ async function loadFormations(keep=false){
     return;
   }
   box.innerHTML=list.map((f,i)=>`<button class="fm" data-i="${i}" aria-pressed="false">
-    <b>${f.label}</b><span>${f.positions.join(" ")}</span><em>${f.games.toLocaleString()}</em></button>`).join("");
+    <b>${f.label}</b><span>${f.variants>1?`배치 ${f.variants}종 묶음`:f.positions.join(" ")}</span><em>${f.games.toLocaleString()}</em></button>`).join("");
   box.querySelectorAll(".fm").forEach(b=>b.onclick=()=>pickFormation(list[+b.dataset.i],b));
   const keepIdx=keep&&S.formation?list.findIndex(f=>f.sig===S.formation.sig):-1;
   const i=keepIdx>=0?keepIdx:0;
@@ -347,7 +483,7 @@ function render(){
   const d=S.data,b=d.baseline;
   if(!b){renderEmpty("조건에 맞는 경기가 없습니다","기간이나 강화 조건을 넓혀 보세요.");return}
   $("#baseline").innerHTML=`<div class="baseline">
-    <div class="who">${esc(S.anchor.name)} <span class="tag">${esc(S.anchor.season)}</span>
+    <div class="who">${esc(S.anchor.name)} <span class="tag">${esc(d.merge_season?"전 시즌":S.anchor.season)}</span>
       ${POS[S.pos]}, ${S.formation.label} <span class="sub" style="color:var(--muted);font-weight:400">(${S.formation.positions.join(" ")})</span></div>
     <div class="stat"><b>${b.n.toLocaleString()}</b><span>경기</span></div>
     <div class="stat"><b>${pct(b.win_rate)}</b><span>% 기준 승률</span></div>
@@ -357,29 +493,33 @@ function render(){
   renderTable(); renderMatrix();
 }
 
-const COLS=[
+const COLS_ALL=[
   {key:"n",label:"경기"},{key:"wdl",label:"승-무-패",nosort:1},{key:"win_rate",label:"승률"},
-  {key:"shrunk",label:"보정 승률"},{key:"lower95",label:"95% 하한"},{key:"adj_pp",label:"체급 보정"},
+  {key:"shrunk",label:"추정 승률"},{key:"pred",label:"개인 합산 기대",pair:1},{key:"synergy",label:"궁합",pair:1},
+  {key:"lower95",label:"95% 하한"},{key:"adj_pp",label:"체급 보정"},
   {key:"gd",label:"평균 득실"},{key:"anchor_rating",label:"기준 선수 평점"},{key:"grades",label:"강화",nosort:1}];
 
 function renderTable(){
   const d=S.data,base=d.baseline.win_rate,{key,dir}=S.sort;
+  const pair=d.slots.length===2, COLS=COLS_ALL.filter(c=>pair||!c.pair);
   if(!d.rows.length){
     $("#table").innerHTML=`<div class="empty-state"><strong>최소 경기 수를 넘는 조합이 없습니다</strong>
       최소 경기를 낮추거나 기간을 넓혀 보세요. 전체 조합은 ${d.combos_total}개입니다.</div>`;return}
   const sorted=[...d.rows].sort((a,b)=>((a[key]??-1e9)-(b[key]??-1e9))*dir);
   const rows=sorted.slice(0,S.limit);
   const maxS=Math.max(...rows.map(r=>r.shrunk),base)*1.05;
-  const head=`<tr><th>${d.slots.join(" + ")}</th>${COLS.map(c=>c.nosort?`<th>${c.label}</th>`
+  const head=`<tr><th>${d.mirror?d.slots.join("·")+" (좌우 무관)":d.slots.join(" + ")}</th>${COLS.map(c=>c.nosort?`<th>${c.label}</th>`
     :`<th ${c.key===key?`aria-sort="${dir<0?"descending":"ascending"}"`:""}><button data-k="${c.key}">${c.label}${c.key===key?(dir<0?" ▼":" ▲"):""}</button></th>`).join("")}</tr>`;
   const body=rows.map(r=>{
     const thin=r.n<30?" thin":"";
     return `<tr>
-    <td><div class="combo">${r.players.map((p,i)=>`<div><span class="pos">${d.slots[i]}</span>${esc(p.name)} <span class="tag">${esc(p.season)}</span></div>`).join("")}</div></td>
+    <td><div class="combo">${r.players.map((p,i)=>`<div>${d.mirror?"":`<span class="pos">${d.slots[i]}</span>`}${esc(p.name)} <span class="tag">${esc(p.season)}</span></div>`).join("")}</div></td>
     <td class="num${thin}">${r.n.toLocaleString()}</td>
     <td class="num">${r.w}-${r.d}-${r.l}</td>
     <td class="num${thin}">${pct(r.win_rate)}</td>
     <td class="num">${pct(r.shrunk)}<span class="bar" aria-hidden="true"><i style="width:${r.shrunk/maxS*100}%"></i><s style="left:${base/maxS*100}%"></s></span></td>
+    ${pair?`<td class="num" style="color:var(--muted)">${pct(r.pred)}</td>
+    <td class="num ${r.synergy>=0?"pos-v":"neg-v"}">${signed(r.synergy*100)}</td>`:""}
     <td class="num ${r.lower95>base?"pos-v":""}">${pct(r.lower95)}</td>
     <td class="num ${r.adj_pp>=0?"pos-v":"neg-v"}">${signed(r.adj_pp)}</td>
     <td class="num">${signed(r.gd)}</td>
@@ -387,7 +527,7 @@ function renderTable(){
     <td class="num" style="color:var(--muted)">${r.grades.map(g=>g.toFixed(1)).join(" / ")}</td></tr>`}).join("");
   $("#table").innerHTML=`<div class="tablewrap"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>
     ${sorted.length>S.limit?`<button class="more" id="more">${Math.min(25,sorted.length-S.limit)}개 더 보기 (${S.limit}/${sorted.length})</button>`:""}
-    <p class="note" style="margin-top:.6rem">흐린 숫자는 30경기 미만입니다. 막대의 검은 선은 기준 승률 ${pct(base)}%입니다.</p>`;
+    <p class="note" style="margin-top:.6rem">흐린 숫자는 30경기 미만입니다. 막대의 검은 선은 기준 승률 ${pct(base)}%입니다.${pair?" 궁합은 두 선수 각자의 성적으로 예상한 승률보다 함께 뛸 때 얼마나 더(덜) 이기는지입니다(%p).":""}</p>`;
   const more=$("#more"); if(more) more.onclick=()=>{S.limit+=25;renderTable()};
   $("#table").querySelectorAll("th button").forEach(bt=>bt.onclick=()=>{
     const k=bt.dataset.k; S.sort={key:k,dir:S.sort.key===k?-S.sort.dir:-1}; S.limit=25; renderTable();});
@@ -401,17 +541,147 @@ function renderMatrix(){
     return v>=0?`color-mix(in srgb, var(--blue) ${Math.round(a*70)}%, var(--panel))`
                :`color-mix(in srgb, var(--red) ${Math.round(a*70)}%, var(--panel))`};
   const cols=m.cols.length;
-  let html=`<h2>${S.data.slots[0]} × ${S.data.slots[1]} 궁합표</h2>
-    <p class="note">각 자리에서 가장 많이 쓰인 선수끼리 교차한 표입니다. 색은 체급 보정값(파랑이 좋음), 큰 숫자는 보정 승률, 작은 숫자는 경기 수입니다. 최소 경기 조건과 관계없이 모든 교차를 보여 주므로 표본이 작은 칸은 참고만 하세요.</p>
+  let html=`<h2>${m.mirror?S.data.slots.join("·")+" 궁합표 (좌우 무관)":S.data.slots[0]+" × "+S.data.slots[1]+" 궁합표"}</h2>
+    <p class="note">가장 많이 쓰인 선수끼리 교차한 표입니다. 색은 궁합(파랑은 개인 성적으로 예상한 것보다 함께 더 이김), 큰 숫자는 추정 승률, 작은 숫자는 경기 수입니다. 최소 경기 조건과 관계없이 모든 교차를 보여 주므로 표본이 작은 칸은 참고만 하세요.</p>
     <div class="tablewrap"><div class="grid" style="grid-template-columns:minmax(9rem,1.3fr) repeat(${cols},minmax(4.5rem,1fr))">
     <div class="h">${S.data.slots[0]} ↓  ${S.data.slots[1]} →</div>`;
   html+=m.cols.map(c=>`<div class="h">${esc(c.name)}<br>${esc(c.season)}</div>`).join("");
   m.rows.forEach((r,i)=>{
     html+=`<div class="rh"><span>${esc(r.name)}</span><span class="tag" style="align-self:flex-start">${esc(r.season)}</span></div>`;
-    html+=m.cells[i].map(c=>c?`<div class="cell" style="background:${cellColor(c.adj_pp)}" title="체급 보정 ${signed(c.adj_pp)}%p">
+    html+=m.cells[i].map(c=>c?`<div class="cell" style="background:${cellColor(c.synergy*100*2)}" title="궁합 ${signed(c.synergy*100)}%p, 체급 보정 ${signed(c.adj_pp)}%p">
       <b>${pct(c.shrunk)}</b><small>${c.n}경기</small></div>`:`<div class="cell empty" aria-label="기록 없음"></div>`).join("");
   });
   sec.innerHTML=html+"</div></div>";
+}
+
+/* ── 튀는 선수 탭 ── */
+document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>switchView(b.dataset.view));
+function switchView(v){
+  document.querySelectorAll(".tabs button").forEach(b=>b.setAttribute("aria-pressed",b.dataset.view===v));
+  $("#viewCombo").hidden=v!=="combo"; $("#viewOutlier").hidden=v!=="outlier"; $("#viewCommon").hidden=v!=="common";
+  if(v==="outlier"&&!$("#oPos").options.length) initOutlier();
+  if(v==="common"&&!$("#cPos").options.length) initCommon();
+}
+function initOutlier(){
+  const order=[25,24,26,21,20,22,23,27,18,17,19,14,13,15,12,16,10,9,11,3,7,2,8,5,4,6,1];
+  $("#oPos").innerHTML=order.map(c=>`<option value="${c}" ${c===17?"selected":""}>${POS[c]}</option>`).join("");
+  $("#oPos").onchange=loadOutlierMeta;
+  ["#oForm","#oGmin","#oGmax","#oMin","#oSort","#oDir"].forEach(s=>$(s).addEventListener("change",loadOutliers));
+  loadOutlierMeta();
+}
+async function loadOutlierMeta(){
+  const list=await api("/api/outlier_meta",{pos:$("#oPos").value}).catch(()=>[]);
+  $("#oForm").innerHTML=`<option value="">전체</option>`+list.slice(0,15).map(f=>`<option value="${f.label}">${f.label} (${f.games.toLocaleString()})</option>`).join("");
+  loadOutliers();
+}
+let oseq=0;
+async function loadOutliers(){
+  const my=++oseq; $("#oTable").style.opacity=.5;
+  try{
+    const d=await api("/api/outliers",{pos:$("#oPos").value,form:$("#oForm").value,gmin:$("#oGmin").value,
+      gmax:$("#oGmax").value,min_games:$("#oMin").value,sort:$("#oSort").value,dir:$("#oDir").value});
+    if(my!==oseq)return; renderOutliers(d);
+  }catch(e){ if(my===oseq){$("#oPeers").innerHTML="";$("#oTable").innerHTML=`<div class="empty-state"><strong>불러오지 못했습니다</strong>${esc(e.message)}</div>`;} }
+  finally{ if(my===oseq) $("#oTable").style.opacity=1; }
+}
+function renderOutliers(d){
+  if(!d.peers){$("#oPeers").innerHTML="";$("#oTable").innerHTML=`<div class="empty-state"><strong>조건에 맞는 경기가 없습니다</strong>강화 구간이나 포메이션 조건을 넓혀 보세요.</div>`;return}
+  const P=d.peers;
+  $("#oPeers").innerHTML=`<div class="peers">
+    <div class="stat"><b>${POS[$("#oPos").value]}</b><span>${$("#oForm").value||"전체 포메이션"}</span></div>
+    <div class="stat"><b>${P.n.toLocaleString()}</b><span>선수 출전</span></div>
+    <div class="stat"><b>${P.players.toLocaleString()}</b><span>명</span></div>
+    <div class="stat"><b>${pct(P.win_rate)}</b><span>% 평균 승률</span></div>
+    <div class="stat"><b>${P.rating?P.rating.toFixed(2):"–"}</b><span>평균 평점</span></div>
+    <div class="stat"><b>${d.rows.length}</b><span>명 표시 (최소 경기 충족 ${d.total}명)</span></div></div>`;
+  if(!d.rows.length){$("#oTable").innerHTML=`<div class="empty-state"><strong>최소 경기 수를 넘는 선수가 없습니다</strong>최소 경기를 낮추거나 조건을 넓혀 보세요.</div>`;return}
+  const conf=z=>{const a=Math.abs(z);return a>=3?`<span class="conf hi">강함</span>`:a>=2?`<span class="conf">보통</span>`:`<span class="conf" style="opacity:.6">약함</span>`};
+  const cls=v=>v>=0?"pos-v":"neg-v";
+  $("#oTable").innerHTML=`<div class="tablewrap"><table><thead><tr>
+    <th>선수</th><th>경기</th><th>승-무-패</th><th>평균 강화</th><th>승률</th><th>승률 차이</th>
+    <th>체급 보정 차이</th><th>평균 평점</th><th>평점 차이</th><th>확신도</th></tr></thead><tbody>
+    ${d.rows.map(r=>`<tr>
+      <td><button class="linkbtn" data-sp="${r.sp_id}">${esc(r.name)}</button> <span class="tag">${esc(r.season)}</span></td>
+      <td class="num${r.n<60?" thin":""}">${r.n.toLocaleString()}</td>
+      <td class="num">${r.w}-${r.d}-${r.l}</td>
+      <td class="num" style="color:var(--muted)">${r.grade.toFixed(1)}</td>
+      <td class="num">${pct(r.win_rate)}</td>
+      <td class="num ${cls(r.win_diff)}">${signed(r.win_diff*100)}</td>
+      <td class="num ${cls(r.adj_diff)}">${signed(r.adj_diff)}</td>
+      <td class="num">${r.rating!=null?r.rating.toFixed(2):"–"}</td>
+      <td class="num ${r.rating_diff!=null?cls(r.rating_diff):""}">${r.rating_diff==null?"–":Math.abs(r.rating_diff)<0.005?"0.00":(r.rating_diff>0?"+":"")+r.rating_diff.toFixed(2)}</td>
+      <td>${conf(r.z)}</td></tr>`).join("")}
+    </tbody></table></div>
+    <p class="note" style="margin-top:.6rem">선수 이름을 누르면 그 선수를 기준으로 조합 분석을 엽니다. 흐린 숫자는 60경기 미만입니다.</p>`;
+  $("#oTable").querySelectorAll(".linkbtn").forEach(b=>b.onclick=async()=>{
+    const pl=await api("/api/player",{sp:b.dataset.sp});
+    if(!pl.positions.length){alert("이 선수는 기준 선수로 쓸 만큼 경기 수가 쌓이지 않았습니다.");return}
+    switchView("combo"); pickAnchor(pl);
+    const want=POS[$("#oPos").value];
+    const opt=[...$("#pos").options].find(o=>o.textContent.startsWith(want+" "));
+    if(opt&&+opt.value!==S.pos){$("#pos").value=opt.value;S.pos=+opt.value;loadFormations();}
+  });
+}
+
+/* ── 공통점 탭 ── */
+const POS_ORDER=[25,24,26,21,20,22,23,27,18,17,19,14,13,15,12,16,10,9,11,3,7,2,8,5,4,6,1];
+function initCommon(){
+  $("#cPos").innerHTML=POS_ORDER.map(c=>`<option value="${c}" ${c===14?"selected":""}>${POS[c]}</option>`).join("");
+  $("#cPos").onchange=loadCommonMeta;
+  ["#cForm","#cGmin","#cGmax","#cMin","#cOut","#cOvr"].forEach(s=>$(s).addEventListener("change",loadCommon));
+  loadCommonMeta();
+}
+async function loadCommonMeta(){
+  const list=await api("/api/outlier_meta",{pos:$("#cPos").value}).catch(()=>[]);
+  // 기본값은 이 포지션에서 가장 많이 쓰인 포메이션 계열
+  $("#cForm").innerHTML=list.slice(0,15).map((f,i)=>`<option value="${f.label}" ${i===0?"selected":""}>${f.label} (${f.games.toLocaleString()})</option>`).join("")+`<option value="">전체</option>`;
+  loadCommon();
+}
+let cseq=0;
+async function loadCommon(){
+  const my=++cseq; $("#cBody").style.opacity=.5;
+  try{
+    const d=await api("/api/common",{pos:$("#cPos").value,form:$("#cForm").value,gmin:$("#cGmin").value,gmax:$("#cGmax").value,
+      min_games:$("#cMin").value,outcome:$("#cOut").value,ovr_adjust:$("#cOvr").checked?"1":""});
+    if(my!==cseq)return; renderCommon(d);
+  }catch(e){ if(my===cseq){$("#cSummary").innerHTML="";$("#cBody").innerHTML=`<div class="empty-state"><strong>불러오지 못했습니다</strong>${esc(e.message)}</div>`;} }
+  finally{ if(my===cseq) $("#cBody").style.opacity=1; }
+}
+function renderCommon(d){
+  const empty=(t,m)=>{$("#cSummary").innerHTML="";$("#cBody").innerHTML=`<div class="empty-state"><strong>${t}</strong>${m}</div>`};
+  if(d.error==="nocards") return empty("카드 정보가 아직 없습니다","수집기가 데이터센터에서 카드 정보를 받아 오는 중입니다. 몇 시간 뒤 다시 확인해 주세요.");
+  if(d.error==="nodata") return empty("조건에 맞는 경기가 없습니다","포메이션이나 강화 조건을 넓혀 보세요.");
+  const unit=d.outcome==="adj_diff"?"%p":"점";
+  const fmt=v=>d.outcome==="adj_diff"?signed(v):(v>0?"+":"")+v.toFixed(2);
+  $("#cSummary").innerHTML=`<div class="peers">
+    <div class="stat"><b>${POS[$("#cPos").value]}</b><span>${$("#cForm").value||"전체 포메이션"}</span></div>
+    <div class="stat"><b>${d.analyzed}</b><span>장 분석 (최소 경기 충족 ${d.eligible}장 중 카드 정보 보유)</span></div>
+    ${d.ovr_slope!=null?`<div class="stat"><b>${fmt(d.ovr_slope)}</b><span>${unit} / OVR 1당 (제거된 몫)</span></div>`:""}</div>`;
+  if(d.analyzed<20) return empty("분석할 카드가 부족합니다",`카드 정보가 있는 선수가 ${d.analyzed}장뿐입니다. 최소 경기를 낮추거나, 카드 정보가 더 쌓인 뒤 확인해 주세요.`);
+  // 여러 특징·기준값을 한꺼번에 훑으므로 일반보다 엄격하게, 한쪽 그룹이 10장 미만이면 '보통'까지만
+  const conf=(t,small)=>{const a=Math.abs(t);return a>=3.5&&!small?`<span class="conf hi">강함</span>`:a>=2.5?`<span class="conf">보통</span>`:`<span class="conf" style="opacity:.6">약함</span>`};
+  const cls=v=>v>=0?"pos-v":"neg-v";
+  const f=d.findings.map(x=>`<tr>
+    <td>${x.kind==="num"?`<b>${esc(x.feature)}</b> ${esc(x.rule)}`:x.kind==="foot"?`<b>주발 왼발</b> <span style="color:var(--muted)">(나머지 = 오른발)</span>`:`<b>${esc(x.feature)}</b>`}</td>
+    <td class="num">${x.n_in} / ${x.n_out}</td>
+    <td class="num ${cls(x.m_in)}">${fmt(x.m_in)}</td>
+    <td class="num ${cls(x.m_out)}">${fmt(x.m_out)}</td>
+    <td class="num ${cls(x.diff)}">${fmt(x.diff)}</td>
+    <td>${conf(x.t,Math.min(x.n_in,x.n_out)<10)}</td></tr>`).join("");
+  const maxZ=Math.max(...d.profile.map(x=>Math.abs(x.z)),0.5);
+  const pr=d.profile.map(x=>`<tr>
+    <td><b>${esc(x.feature)}</b></td>
+    <td class="num">${x.top.toFixed(1)}</td><td class="num" style="color:var(--muted)">${x.bottom.toFixed(1)}</td>
+    <td class="num ${cls(x.z)}">${x.top-x.bottom>0?"+":""}${(x.top-x.bottom).toFixed(1)}
+      <span class="bar" aria-hidden="true"><i style="width:${Math.abs(x.z)/maxZ*100}%;background:${x.z>=0?"var(--blue)":"var(--red)"}"></i></span></td></tr>`).join("");
+  $("#cBody").innerHTML=`
+    <h2 style="margin-top:1.5rem">성과를 가르는 특징</h2>
+    <p class="note">각 특징으로 선수들을 나눴을 때 성과 차이가 뚜렷한 순서입니다. 능력치는 '이 기준을 만족하는 쪽'이 더 잘하는 방향으로 표시했고, 체형·특성은 보유 여부로, 주발은 왼발과 오른발끼리 비교했습니다(차이가 음수면 해당 쪽이 못함).</p>
+    <div class="tablewrap"><table><thead><tr><th>조건</th><th>해당 / 나머지 (장)</th><th>해당 쪽 평균 성과</th><th>나머지 평균 성과</th><th>차이</th><th>확신도</th></tr></thead>
+    <tbody>${f||`<tr><td colspan="6" style="text-align:left;color:var(--muted)">뚜렷한 특징이 없습니다.</td></tr>`}</tbody></table></div>
+    <h2 style="margin-top:2rem">잘하는 카드 vs 못하는 카드</h2>
+    <p class="note">성과 상위 ${d.quartile}장과 하위 ${d.quartile}장의 평균을 비교했습니다. 막대는 차이의 크기(능력치 분포 대비)입니다.</p>
+    <div class="tablewrap"><table style="min-width:520px"><thead><tr><th>특징</th><th>상위 평균</th><th>하위 평균</th><th>차이</th></tr></thead><tbody>${pr}</tbody></table></div>`;
 }
 
 drawPitch(null); loadStatus();
