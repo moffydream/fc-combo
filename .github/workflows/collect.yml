@@ -10,7 +10,15 @@ on:
         required: false
         default: ""
       rps:
-        description: "초당 요청 수 (비우면 50)"
+        description: "경기 수집 초당 요청 수 (비우면 50)"
+        required: false
+        default: ""
+      cards_max:
+        description: "이번에 받을 카드 수 (비우면 평소 300, 일괄 수집은 30000)"
+        required: false
+        default: ""
+      cards_rps:
+        description: "카드 수집 초당 요청 수 (비우면 1, 일괄 수집은 3)"
         required: false
         default: ""
 
@@ -31,7 +39,7 @@ env:
 jobs:
   collect:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 240
     environment:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
@@ -62,7 +70,7 @@ jobs:
 
       - name: 카드 정보 수집
         continue-on-error: true
-        run: python cards.py --max ${{ vars.CARDS_PER_RUN || 300 }} --rps 1
+        run: python cards.py --max ${{ inputs.cards_max || vars.CARDS_PER_RUN || 300 }} --rps ${{ inputs.cards_rps || 1 }} --minutes 170
 
       - name: DB 저장
         if: always() && hashFiles('state/fc_combo.db') != ''
