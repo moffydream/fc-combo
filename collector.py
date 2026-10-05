@@ -17,6 +17,7 @@ import asyncio
 import hashlib
 import os
 import random
+import sqlite3
 import time
 from datetime import date, datetime, timedelta
 
@@ -497,6 +498,21 @@ async def main():
             con.execute("INSERT OR REPLACE INTO kv VALUES('meta_synced', ?)", (str(time.time()),))
             con.commit()
         FOCUS.update(resolve_focus(con, a.focus, a.focus_season))
+        # 랭커 DB가 있으면 랭커들을 우선 조회 대상으로 등록 (스쿼드 정보와 경기를 연결하기 위해)
+        rank_db = os.environ.get("FC_RANK_DB")
+        if rank_db and os.path.exists(rank_db):
+            try:
+                rc = sqlite3.connect(rank_db)
+                ouids = [r[0] for r in rc.execute("SELECT ouid FROM rankers WHERE ouid IS NOT NULL")]
+                rc.close()
+                now = time.time()
+                con.executemany("INSERT OR IGNORE INTO crawl_users(ouid, last_crawled, found_at) VALUES(?,0,?)",
+                                [(o, now) for o in ouids])
+                con.executemany("UPDATE crawl_users SET focus=1 WHERE ouid=?", [(o,) for o in ouids])
+                con.commit()
+                print(f"[rankers] 랭커 {len(ouids)}명을 우선 조회 대상으로 등록")
+            except sqlite3.Error as e:
+                print(f"[rankers] 랭커 DB를 읽지 못함: {e}")
         pool = con.execute("SELECT COUNT(*) FROM crawl_users").fetchone()[0]
         if a.seed and (not a.seed_if_empty or pool == 0):
             await add_seeds(api, con, a.seed)
