@@ -30,29 +30,22 @@ def hour_no(iso):
         return 0
 
 
+# 신규 특성(노란색) 목록. 새 특성이 나오면 이 목록에 이름을 추가하면 된다 (띄어쓰기 차이는 무시)
+NEW_TRAITS = ["크로스 포쳐", "아크로바틱 피니셔", "타이탄", "레이저 슈터", "커맨더", "스피드스터", "트릭스터",
+              "파이터", "라인 브레이커", "블로커", "프레데터", "와일드 태클러", "2개의 심장", "체이서"]
+
+
 def trait_info(names, seen):
-    """특성별 [아이콘 주소, AI 성향 여부, 구분('신규'/'기존'/'')].
-    신규(노란색) 여부는 페이지 글자에 없어서 아이콘 주소와 주변 class로 추정한다:
-    'new/yellow/gold' 같은 단서가 있으면 신규, 아니면 아이콘 파일 이름 형태가 다수와 다르면 신규."""
-    import re as _re
-    from collections import Counter
-    icon = {n: (max(seen[n]["icons"].items(), key=lambda x: x[1])[0] if seen.get(n) and seen[n]["icons"] else "")
-            for n in names}
-    fam = {n: _re.sub(r"\d+", "#", icon[n].rsplit("?", 1)[0]) for n in names}
-    common = Counter(f for f in fam.values() if f).most_common(1)
-    common = common[0][0] if common else None
-    kw = _re.compile(r"new|yellow|gold|renew|special|premium", _re.I)
+    """특성별 [아이콘 주소, AI 성향 여부, 구분('신규'/'기존')]. 구분은 NEW_TRAITS 목록 기준."""
+    import os as _os
+    extra = [x for x in _os.environ.get("NEW_TRAITS", "").split(",") if x.strip()]
+    norm = lambda x: "".join(x.split())          # 띄어쓰기 차이는 무시
+    new_set = {norm(x) for x in NEW_TRAITS + extra}
     out = []
     for n in names:
-        s = seen.get(n, {"ai": 0, "hints": set()})
-        hint_txt = icon[n] + " " + " ".join(s["hints"])
-        if not icon[n]:
-            grp = ""
-        elif kw.search(hint_txt) or (common and fam[n] != common):
-            grp = "신규"
-        else:
-            grp = "기존"
-        out.append([icon[n], s["ai"], grp])
+        s = seen.get(n) or {"icons": {}, "ai": 0}
+        icon = max(s["icons"].items(), key=lambda x: x[1])[0] if s["icons"] else ""
+        out.append([icon, s["ai"], "신규" if norm(n) in new_set else "기존"])
     return out
 
 
@@ -217,7 +210,8 @@ def main():
                               {"L": 0, "R": 1}.get(mf, -1),
                               pay if pay is not None and pay >= 0 else None,
                               # 클럽 경력: 정식은 번호, 임대는 -(번호+1)
-                              [(i if not loan else -(i + 1)) for cn, loan in json.loads(clubs or "[]")
+                              None if clubs is None else      # None: 클럽 경력을 아직 못 받음
+                              [(i if not loan else -(i + 1)) for cn, loan in json.loads(clubs)
                                for i in [club_names.setdefault(cn, len(club_names))]],
                               uniq or 0]
     tlist = [None] * len(trait_names)

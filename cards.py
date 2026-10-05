@@ -18,6 +18,7 @@ import httpx
 from db import connect
 
 URL = "https://m.fconline.nexon.com/datacenter/playerinfo"
+PARSER_VERSION = "4"   # 읽는 방식을 고칠 때 올리면 기존 카드를 다시 받는다
 STATS = ["속력", "가속력", "골 결정력", "슛 파워", "중거리 슛", "위치 선정", "발리슛", "페널티 킥",
          "짧은 패스", "시야", "크로스", "긴 패스", "프리킥", "커브", "드리블", "볼 컨트롤", "민첩성",
          "밸런스", "반응 속도", "대인 수비", "태클", "가로채기", "헤더", "슬라이딩 태클", "몸싸움",
@@ -42,6 +43,13 @@ def migrate(con):
             pass
     con.execute("UPDATE card_info SET main_foot = CASE WHEN foot_l > foot_r THEN 'L' ELSE 'R' END "
                 "WHERE ok = 1 AND main_foot IS NULL AND foot_l != foot_r")
+    # 파서가 바뀌면 클럽 경력·급여를 한 번 다시 받도록 표시 (clubs가 비면 수집 대상이 됨)
+    con.execute("CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY, value TEXT)")
+    ver = con.execute("SELECT value FROM kv WHERE key='cards_parser'").fetchone()
+    if not ver or ver[0] != PARSER_VERSION:
+        con.execute("UPDATE card_info SET clubs = NULL, pay = NULL, fetched_at = 0 WHERE ok = 1")
+        con.execute("UPDATE card_info SET fetched_at = 0 WHERE ok = 0")
+        con.execute("INSERT OR REPLACE INTO kv VALUES('cards_parser', ?)", (PARSER_VERSION,))
     con.commit()
 
 
@@ -71,23 +79,34 @@ def to_text(page):
 
 
 def parse_clubs(text):
-    """'연도 / 클럽 / 임대 여부' 표에서 클럽 경력 목록 [[클럽, 임대여부], ...]"""
+    """'연도 / 클럽 / 임대 여부' 표에서 클럽 경력 목록 [[클럽, 임대여부], ...].
+    연도와 클럽이 줄을 나눠 나오는 형태와 '2010 ~ 2011 맨체스터 시티 임대'처럼 한 줄에 나오는 형태를 모두 처리."""
     start = text.find("임대 여부")
     if start < 0:
-        return []
+        start = text.find("클럽 경력")
+        if start < 0:
+            return []
     end = text.find("플레이 평균 기록", start)
     seg = text[start + 5: end if end > 0 else start + 3000]
     clubs = []
-    for line in (l.strip() for l in seg.split("\n")):
-        if not line or re.fullmatch(r"\d{4}\s*~\s*(\d{4})?", line):
+    for line in (l.strip(" \t*-•·") for l in seg.split("\n")):
+        if not line:
             continue
-        if line == "임대":
-            if clubs:
+        ym = re.match(r"(\d{4})\s*~\s*(\d{4})?\s*(.*)$", line)
+        if ym:
+            line = ym.group(3).strip()
+            if not line:
+                continue                          # 연도만 있는 줄
+        if line in ("임대", "연도", "클럽", "임대 여부"):
+            if line == "임대" and clubs:
                 clubs[-1][1] = 1
             continue
-        if len(line) > 40:     # 표가 끝난 뒤의 긴 문장
+        if len(line) > 40:                        # 표가 끝난 뒤의 긴 문장
             break
-        clubs.append([line, 0])
+        loan = 0
+        if line.endswith(" 임대"):                 # 한 줄 형태의 임대 표시
+            line, loan = line[:-3].strip(), 1
+        clubs.append([line, loan])
     out = {}
     for name, loan in clubs:                     # 같은 클럽이 정식·임대로 모두 있으면 정식 우선
         out[name] = min(out.get(name, 1), loan)
@@ -137,7 +156,11 @@ def parse(page, name=None):
     if not pm and name:
         # 카드 머리말 '126 ST 1 엘링 홀란 34' 에서 이름 바로 뒤 숫자가 급여
         pm = re.search(re.escape(name) + r"\s*\n\s*(\d{1,2})\s*\n", text[:m.start()])
-    out["pay"] = int(pm.group(1)) if pm else -1          # -1: 페이지에서 못 찾음 (다시 받지 않음)
+    if not pm:
+        # 이름 표기가 메타데이터와 달라도 되도록: 'OVR / 포지션 / 강화 / 이름 / 급여' 순서만으로 찾기
+        pm = re.search(r"\b\d{2,3}\s*\n\s*(?:" + POSITIONS + r")\s*\n\s*\d{1,2}\s*\n\s*[^\n]{2,30}?\s*\n\s*(\d{1,2})\s*\n",
+                       text[:m.start()])
+    out["pay"] = int(pm.group(1)) if pm else -1          # -1: 페이지에서 못 찾음
     out["clubs"] = parse_clubs(text)
     return out
 
@@ -231,6 +254,10 @@ async def main():
     con.commit()
     total = con.execute("SELECT COUNT(*) FROM card_info WHERE ok=1").fetchone()[0]
     print(f"[cards] 성공 {ok}건, 실패 {fail}건, 보유 카드 정보 {total}개")
+    r = con.execute("SELECT SUM(pay >= 0), SUM(clubs IS NOT NULL AND clubs != '[]'), SUM(clubs IS NULL), "
+                    "SUM(trait_meta IS NOT NULL) FROM card_info WHERE ok=1").fetchone()
+    print(f"[cards] 점검: 급여 읽음 {r[0] or 0}/{total}, 클럽 경력 읽음 {r[1] or 0}/{total} "
+          f"(아직 안 받음 {r[2] or 0}), 특성 아이콘 정보 {r[3] or 0}/{total}")
 
 
 if __name__ == "__main__":
