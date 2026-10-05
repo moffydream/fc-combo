@@ -630,14 +630,17 @@ function renderOutliers(d){
     <div class="stat"><b>${P.rating?P.rating.toFixed(2):"–"}</b><span>평균 평점</span></div>
     <div class="stat"><b>${d.rows.length}</b><span>명 표시 (최소 경기 충족 ${d.total}명)</span></div>
     ${d.club?`<div class="stat" style="flex-basis:100%"><span>팀 컬러 필터: ${d.club_matched.length?d.club_matched.map(esc).join(", "):"일치하는 클럽 없음"}${d.club_count!=null?` · 해당 선수 ${d.club_count}명`:""} (비교 기준인 동료 집단은 필터와 관계없이 이 포지션 전체)</span></div>`:""}</div>`;
-  const belowMsg=d.below_min&&d.below_min.length?`<p class="note">최소 경기(${$("#oMin").value}) 미달로 순위에서 빠진 선수: ${d.below_min.slice(0,10).map(b=>`${esc(b.name)} ${stag(b)} ${b.n}경기`).join(", ")}</p>`:"";
-  if(!d.rows.length&&d.club&&!d.query){$("#oTable").innerHTML=`<div class="empty-state"><strong>이 조건에 '${esc(d.club)}' 경력 선수가 없습니다</strong>최소 경기를 낮추거나, 카드 정보 수집이 끝났는지 확인해 보세요.</div>`;return}
+  const belowMsg=d.below_min&&d.below_min.length?`<p class="note">최소 경기(${$("#oMin").value}) 미달로 순위에서 빠진 선수: ${d.below_min.slice(0,15).map(b=>`${esc(b.name)} ${stag(b)} ${b.n}경기`).join(", ")}${d.below_min.length>15?` 외 ${d.below_min.length-15}명`:""}</p>`:"";
+  const ci=d.club_info;
+  const clubDiag=ci?`<p class="note">진단: 이 조건에서 뛴 선수 ${ci.players}명 중 클럽 경력을 받은 카드 ${ci.known}명(${ci.players?Math.round(ci.known/ci.players*100):0}%), 그중 '${esc(d.club)}' 경력 ${ci.matched_any}명. ${ci.known<ci.players*0.8?"클럽 경력을 아직 못 받은 카드가 많습니다. 카드 일괄 수집을 돌리면 채워집니다.":""}</p>`:"";
+  if(!d.rows.length&&d.club&&!d.query){$("#oTable").innerHTML=`<div class="empty-state"><strong>최소 경기(${$("#oMin").value})를 넘는 '${esc(d.club)}' 경력 선수가 없습니다</strong>${ci&&ci.matched_any?"최소 경기 미달인 해당 선수는 아래에 있습니다. 최소 경기를 낮추면 순위에 포함됩니다.":"아래 진단을 확인해 보세요."}</div>${belowMsg}${clubDiag}`;return}
   if(!d.rows.length){$("#oTable").innerHTML=d.query
     ?`<div class="empty-state"><strong>'${esc(d.query)}'와 일치하는 선수가 이 조건에 없습니다</strong>포지션이나 포메이션, 강화 조건을 바꿔 보세요.</div>${belowMsg}`
     :`<div class="empty-state"><strong>최소 경기 수를 넘는 선수가 없습니다</strong>최소 경기를 낮추거나 조건을 넓혀 보세요.</div>`;return}
   const prof=p=>{if(!p)return`<span class="prof">정보 없음</span>`;
     const fl=p.main_foot===0?`<b>${p.foot_l}</b>`:p.foot_l, fr=p.main_foot===1?`<b>${p.foot_r}</b>`:p.foot_r;
-    return `<span class="prof">${p.pay!=null?`급여 <b>${p.pay}</b> · `:""}${p.height}cm ${p.weight}kg · ${fl}/${fr}</span>`};
+    const tip=p.clubs==null?"클럽 경력 미수집":p.clubs.length?"클럽 경력: "+p.clubs.join(", "):"클럽 경력 없음";
+    return `<span class="prof" title="${esc(tip)}">${p.pay!=null?`급여 <b>${p.pay}</b> · `:""}${p.height}cm ${p.weight}kg · ${fl}/${fr}${p.clubs==null?` · <span style="opacity:.6">경력?</span>`:""}</span>`};
   const conf=z=>{const a=Math.abs(z);return a>=3?`<span class="conf hi">강함</span>`:a>=2?`<span class="conf">보통</span>`:`<span class="conf" style="opacity:.6">약함</span>`};
   const cls=v=>v>=0?"pos-v":"neg-v";
   $("#oTable").innerHTML=`<div class="tablewrap"><table><thead><tr>
@@ -659,7 +662,7 @@ function renderOutliers(d){
       <td class="num ${r.score>=0?"pos-v":"neg-v"}">${(r.score>0?"+":"")+r.score.toFixed(2)}</td>
       <td>${conf(r.z)}</td></tr>`).join("")}
     </tbody></table></div>
-    ${belowMsg}
+    ${belowMsg}${clubDiag}
     <p class="note" style="margin-top:.6rem">선수 이름을 누르면 그 선수를 기준으로 조합 분석을 엽니다. 맨 앞 숫자는 현재 기준·방향의 전체 순위(${d.total}명 중)이고, 프로필의 발은 왼발/오른발 순서이며 굵은 쪽이 주발입니다. 흐린 숫자는 60경기 미만입니다.</p>`;
   $("#oTable").querySelectorAll(".linkbtn").forEach(b=>b.onclick=async()=>{
     const pl=await api("/api/player",{sp:b.dataset.sp});

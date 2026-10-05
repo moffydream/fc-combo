@@ -231,7 +231,8 @@
       rows.forEach((r, i) => {
         r.rank = i + 1;
         const c = cards && cards.c[r.sp_id];
-        if (c) r.profile = { ovr: c[0], height: c[1], weight: c[2], foot_l: c[4], foot_r: c[5], main_foot: c[8] ?? -1, pay: c[9] ?? null };
+        if (c) r.profile = { ovr: c[0], height: c[1], weight: c[2], foot_l: c[4], foot_r: c[5], main_foot: c[8] ?? -1, pay: c[9] ?? null,
+                             clubs: c[10] == null ? null : c[10].map(v => (v >= 0 ? cards.clubs[v] : cards.clubs[-v - 1] + " (임대)")) };
       });
       // 팀 컬러(클럽 경력) 필터: 정확히 일치하는 클럽이 있으면 그 클럽만, 아니면 이름이 포함된 클럽들
       const club = String(p.club || "").trim();
@@ -250,17 +251,25 @@
       const q = String(p.q || "").trim().toLowerCase();
       const match = r => (!q || r.name.toLowerCase().includes(q)) && clubOk(r.sp_id);
       let shown = q || club ? rows.filter(match) : rows;
-      shown = shown.slice(0, q ? 500 : +p.limit || 50);
-      let below = [];
-      if (q) {
+      shown = shown.slice(0, q || club ? 500 : +p.limit || 50);
+      let below = [], clubInfo = null;
+      if (club && cards) {
+        // 진단용: 최소 경기와 관계없이 이 조건에서 뛴 모든 선수 중 클럽 경력 수집 여부와 해당 클럽 선수
+        const all = await playerStats({ ...p, min_games: 1 });
+        const known = all.rows.filter(r => cards.c[r.sp_id] && cards.c[r.sp_id][10] != null);
+        clubInfo = { players: all.rows.length, known: known.length,
+                     matched_any: all.rows.filter(r => clubOk(r.sp_id)).length };
+      }
+      if (q || club) {
         const all = await playerStats({ ...p, min_games: 1 });
         const have = new Set(shown.map(r => r.sp_id));
-        below = all.rows.filter(r => match(r) && !have.has(r.sp_id))
+        below = all.rows.filter(r => match(r) && !have.has(r.sp_id)).sort((a, b) => b.n - a.n)
           .map(r => ({ sp_id: r.sp_id, name: r.name, season: r.season, season_img: r.season_img, n: r.n }));
       }
       return { peers: { n: T.n, win_rate: T.w / T.n, rating: T.rn ? T.rs / T.rn : null, players: T.players },
                rows: shown, total: rows.length, query: q, below_min: below,
-               club, club_matched: clubMatched.slice(0, 8), club_count: club ? rows.filter(r => clubOk(r.sp_id)).length : null };
+               club, club_matched: clubMatched.slice(0, 8), club_count: club ? rows.filter(r => clubOk(r.sp_id)).length : null,
+               club_info: clubInfo };
     },
 
     /* 공통점 탭: 성적이 좋은 선수들이 공유하는 카드 특징 */
