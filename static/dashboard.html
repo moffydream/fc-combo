@@ -122,6 +122,7 @@ td.num{font:600 1.08rem var(--num);white-space:nowrap}
 .combo div{display:flex;gap:.4rem;align-items:baseline;white-space:nowrap}
 .combo .pos{font:600 .78rem var(--num);color:var(--muted);width:2.3rem}
 .sicon{height:1.15em;width:auto;vertical-align:-.2em;border-radius:2px}
+.chk{display:flex;align-items:center;gap:.3rem;font-size:.85rem;padding-bottom:.55rem;white-space:nowrap;cursor:pointer}
 .prof{font-size:.78rem;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
 .prof b{color:var(--ink);font-weight:600}
 .tag{font-size:.7rem;padding:.02rem .35rem;border-radius:4px;background:var(--board);color:var(--muted);border:1px solid var(--rule)}
@@ -283,6 +284,12 @@ details.help dd{margin:0}
       <input id="oQ" type="search" autocomplete="off" placeholder="이름 일부 입력">
     </div>
     <div class="field">
+      <label for="oClub">팀 컬러 (클럽 경력)</label>
+      <input id="oClub" list="oClubs" autocomplete="off" placeholder="예: FC 바르셀로나">
+      <datalist id="oClubs"></datalist>
+    </div>
+    <label class="chk"><input type="checkbox" id="oLoan" checked> 임대 포함</label>
+    <div class="field">
       <label for="oPos">포지션</label>
       <select id="oPos"></select>
     </div>
@@ -300,14 +307,18 @@ details.help dd{margin:0}
     </div>
     <div class="field small">
       <label for="oMin">최소 경기</label>
-      <input id="oMin" type="number" min="5" value="30">
+      <input id="oMin" type="number" min="5" value="200">
     </div>
     <div class="field">
       <label for="oSort">기준</label>
       <select id="oSort">
+        <option value="score">종합 점수</option>
         <option value="adj_diff">체급 보정 차이</option>
         <option value="win_diff">승률 차이</option>
         <option value="rating_diff">평점 차이</option>
+        <option value="ap_diff">공격 포인트 차이</option>
+        <option value="def_diff">수비 기록 차이</option>
+        <option value="pass_diff">패스 성공률 차이</option>
         <option value="z">통계적 확신도</option>
       </select>
     </div>
@@ -326,6 +337,9 @@ details.help dd{margin:0}
       <summary>지표 읽는 법</summary>
       <dl>
         <dt>동료 집단</dt><dd>같은 포지션, 같은 포메이션 계열, 같은 강화 구간에서 뛴 다른 모든 선수입니다. 각 선수는 자기 자신을 뺀 동료 집단과 비교합니다.</dd>
+        <dt>종합 점수</dt><dd>여러 지표를 이 조건의 선수들 사이에서 표준화한 뒤 합친 값입니다. 승리 기여(체급 보정 차이) 50%, 경기 평점 25%, 포지션 역할 기록 25%로 묶고, 역할 기록은 공격수는 공격 포인트, 수비수는 수비 기록(태클+가로채기+차단), 미드필더는 둘의 평균을 씁니다. 골키퍼는 체급 보정 65%, 평점 35%입니다. +1이면 이 조건 선수들 중 대략 상위 16% 수준입니다. 가중치는 승리에 직접 연결되는 지표를 가장 무겁게 둔 판단이며 정답이 정해진 값은 아닙니다.</dd>
+        <dt>경기당 기록</dt><dd>골·도움은 모든 경기 기준이고, 수비 기록과 패스 성공률은 기록 수집을 시작한 뒤의 경기에서만 계산됩니다. 처음 며칠은 비어 있거나 표본이 적을 수 있습니다.</dd>
+        <dt>팀 컬러 필터</dt><dd>데이터센터의 클럽 경력 기준입니다. 표시만 거르고, 비교 기준인 동료 집단은 그대로 이 포지션 전체입니다. 임대 경력이 팀 컬러에 포함되는지는 게임 규칙을 확인하고 체크를 조정하세요.</dd>
         <dt>체급 보정 차이</dt><dd>양 팀 평균 강화로 예상되는 승점 대비 실제 승점이 동료들보다 얼마나 높은지(%p)입니다. 비싼 스쿼드에 들어가서 이긴 몫을 걷어낸 값이라 가장 공정한 기준입니다.</dd>
         <dt>평점 차이</dt><dd>경기 평점이 동료 평균보다 얼마나 높은지입니다. 평점은 경기 결과의 영향을 받으므로 승률과 함께 보세요.</dd>
         <dt>확신도</dt><dd>승률 차이가 우연으로 설명되기 어려운 정도입니다. 강함은 우연일 가능성이 매우 낮다는 뜻입니다.</dd>
@@ -579,6 +593,9 @@ function initOutlier(){
   $("#oPos").onchange=loadOutlierMeta;
   ["#oForm","#oGmin","#oGmax","#oMin","#oSort","#oDir"].forEach(s=>$(s).addEventListener("change",loadOutliers));
   let qt; $("#oQ").addEventListener("input",()=>{clearTimeout(qt);qt=setTimeout(loadOutliers,250)});
+  let ct; $("#oClub").addEventListener("input",()=>{clearTimeout(ct);ct=setTimeout(loadOutliers,350)});
+  $("#oLoan").addEventListener("change",loadOutliers);
+  api("/api/clubs").then(list=>{$("#oClubs").innerHTML=list.slice(0,800).map(c=>`<option value="${esc(c)}">`).join("")}).catch(()=>{});
   loadOutlierMeta();
 }
 async function loadOutlierMeta(){
@@ -591,7 +608,8 @@ async function loadOutliers(){
   const my=++oseq; $("#oTable").style.opacity=.5;
   try{
     const d=await api("/api/outliers",{pos:$("#oPos").value,form:$("#oForm").value,gmin:$("#oGmin").value,
-      gmax:$("#oGmax").value,min_games:$("#oMin").value,sort:$("#oSort").value,dir:$("#oDir").value,q:$("#oQ").value});
+      gmax:$("#oGmax").value,min_games:$("#oMin").value,sort:$("#oSort").value,dir:$("#oDir").value,q:$("#oQ").value,
+      club:$("#oClub").value,loan:$("#oLoan").checked?"1":"0"});
     if(my!==oseq)return; renderOutliers(d);
   }catch(e){ if(my===oseq){$("#oPeers").innerHTML="";$("#oTable").innerHTML=`<div class="empty-state"><strong>불러오지 못했습니다</strong>${esc(e.message)}</div>`;} }
   finally{ if(my===oseq) $("#oTable").style.opacity=1; }
@@ -605,8 +623,10 @@ function renderOutliers(d){
     <div class="stat"><b>${P.players.toLocaleString()}</b><span>명</span></div>
     <div class="stat"><b>${pct(P.win_rate)}</b><span>% 평균 승률</span></div>
     <div class="stat"><b>${P.rating?P.rating.toFixed(2):"–"}</b><span>평균 평점</span></div>
-    <div class="stat"><b>${d.rows.length}</b><span>명 표시 (최소 경기 충족 ${d.total}명)</span></div></div>`;
+    <div class="stat"><b>${d.rows.length}</b><span>명 표시 (최소 경기 충족 ${d.total}명)</span></div>
+    ${d.club?`<div class="stat" style="flex-basis:100%"><span>팀 컬러 필터: ${d.club_matched.length?d.club_matched.map(esc).join(", "):"일치하는 클럽 없음"}${d.club_count!=null?` · 해당 선수 ${d.club_count}명`:""} (비교 기준인 동료 집단은 필터와 관계없이 이 포지션 전체)</span></div>`:""}</div>`;
   const belowMsg=d.below_min&&d.below_min.length?`<p class="note">최소 경기(${$("#oMin").value}) 미달로 순위에서 빠진 선수: ${d.below_min.slice(0,10).map(b=>`${esc(b.name)} ${stag(b)} ${b.n}경기`).join(", ")}</p>`:"";
+  if(!d.rows.length&&d.club&&!d.query){$("#oTable").innerHTML=`<div class="empty-state"><strong>이 조건에 '${esc(d.club)}' 경력 선수가 없습니다</strong>최소 경기를 낮추거나, 카드 정보 수집이 끝났는지 확인해 보세요.</div>`;return}
   if(!d.rows.length){$("#oTable").innerHTML=d.query
     ?`<div class="empty-state"><strong>'${esc(d.query)}'와 일치하는 선수가 이 조건에 없습니다</strong>포지션이나 포메이션, 강화 조건을 바꿔 보세요.</div>${belowMsg}`
     :`<div class="empty-state"><strong>최소 경기 수를 넘는 선수가 없습니다</strong>최소 경기를 낮추거나 조건을 넓혀 보세요.</div>`;return}
@@ -616,8 +636,8 @@ function renderOutliers(d){
   const conf=z=>{const a=Math.abs(z);return a>=3?`<span class="conf hi">강함</span>`:a>=2?`<span class="conf">보통</span>`:`<span class="conf" style="opacity:.6">약함</span>`};
   const cls=v=>v>=0?"pos-v":"neg-v";
   $("#oTable").innerHTML=`<div class="tablewrap"><table><thead><tr>
-    <th>${d.query?"순위":""}</th><th>선수</th><th>프로필</th><th>경기</th><th>승-무-패</th><th>평균 강화</th><th>승률</th><th>승률 차이</th>
-    <th>체급 보정 차이</th><th>평균 평점</th><th>평점 차이</th><th>확신도</th></tr></thead><tbody>
+    <th>순위</th><th>선수</th><th>프로필</th><th>경기</th><th>승-무-패</th><th>평균 강화</th><th>승률</th><th>승률 차이</th>
+    <th>체급 보정 차이</th><th>평균 평점</th><th>평점 차이</th><th>경기당 기록</th><th>종합</th><th>확신도</th></tr></thead><tbody>
     ${d.rows.map(r=>`<tr>
       <td class="num" style="color:var(--muted)">${r.rank}</td>
       <td><button class="linkbtn" data-sp="${r.sp_id}">${esc(r.name)}</button> ${stag(r)}</td>
@@ -630,6 +650,8 @@ function renderOutliers(d){
       <td class="num ${cls(r.adj_diff)}">${signed(r.adj_diff)}</td>
       <td class="num">${r.rating!=null?r.rating.toFixed(2):"–"}</td>
       <td class="num ${r.rating_diff!=null&&Math.abs(r.rating_diff)>=0.005?cls(r.rating_diff):""}">${r.rating_diff==null?"–":Math.abs(r.rating_diff)<0.005?"0.00":(r.rating_diff>0?"+":"")+r.rating_diff.toFixed(2)}</td>
+      <td class="prof" style="text-align:right">골 <b>${r.gpg.toFixed(2)}</b> 도움 <b>${r.apg.toFixed(2)}</b>${r.defpg!=null?` 수비 <b>${r.defpg.toFixed(1)}</b>`:""}${r.pass_pct!=null?` 패스 <b>${(r.pass_pct*100).toFixed(0)}%</b>`:""}</td>
+      <td class="num ${r.score>=0?"pos-v":"neg-v"}">${(r.score>0?"+":"")+r.score.toFixed(2)}</td>
       <td>${conf(r.z)}</td></tr>`).join("")}
     </tbody></table></div>
     ${belowMsg}

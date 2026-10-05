@@ -135,21 +135,28 @@
     return best;
   }
 
-  /* 포지션 집계에서 선수별 성적과 동료 대비 차이를 계산 (튀는 선수·공통점 탭 공용) */
+  /* 포지션 집계에서 선수별 성적과 동료 대비 차이를 계산 (튀는 선수·공통점 탭 공용)
+   * 각 차이는 경기 수가 적을수록 0으로 줄인 값(n/(n+K) 배). */
+  const ROLE = pos => pos === 0 ? "gk" : pos <= 8 ? "def" : pos <= 16 ? "mid" : "att";
   async function playerStats(p) {
     const d = await loadPos(+p.pos);
     const fi = p.form ? d.f.indexOf(p.form) : -1;
     const gmin = p.gmin === "" || p.gmin == null ? 0 : +p.gmin;
     const gmax = p.gmax === "" || p.gmax == null ? 99 : +p.gmax;
     const K = +p.k || 30, minGames = +p.min_games || 30;
-    const by = new Map(), T = { n: 0, w: 0, d: 0, rn: 0, rs: 0, adj: 0 };
-    for (const [sp, f, g, n, w, dr, rn, rs, adj] of d.e) {
+    const Z = () => ({ n: 0, w: 0, d: 0, rn: 0, rs: 0, adj: 0, g: 0, a: 0, sn: 0, df: 0, pt: 0, ps: 0, gs: 0 });
+    const by = new Map(), T = Z();
+    for (const e of d.e) {
+      const [sp, f, g, n, w, dr, rn, rs, adj] = e;
       if (fi >= 0 && f !== fi) continue;
       if (g < gmin || g > gmax) continue;
-      const a = by.get(sp) || { n: 0, w: 0, d: 0, rn: 0, rs: 0, adj: 0, gs: 0 };
-      a.n += n; a.w += w; a.d += dr; a.rn += rn; a.rs += rs / 100; a.adj += adj / 1000; a.gs += g * n;
+      const a = by.get(sp) || Z();
+      for (const x of [a, T]) {
+        x.n += n; x.w += w; x.d += dr; x.rn += rn; x.rs += rs / 100; x.adj += adj / 1000;
+        x.g += e[9] || 0; x.a += e[10] || 0; x.sn += e[11] || 0; x.df += e[12] || 0; x.pt += e[13] || 0; x.ps += e[14] || 0;
+      }
+      a.gs += g * n;
       by.set(sp, a);
-      T.n += n; T.w += w; T.d += dr; T.rn += rn; T.rs += rs / 100; T.adj += adj / 1000;
     }
     if (!T.n) return { T: null, rows: [] };
     T.players = by.size;
@@ -158,18 +165,52 @@
       if (a.n < minGames) continue;
       const on = T.n - a.n;
       if (on < minGames) continue;
+      const sh = a.n / (a.n + K);
       const pwr = (T.w - a.w) / on, padj = (T.adj - a.adj) / on;
       const prat = T.rn - a.rn > 0 ? (T.rs - a.rs) / (T.rn - a.rn) : null;
-      const sh = a.n / (a.n + K), wr = a.w / a.n, rat = a.rn ? a.rs / a.rn : null;
+      const wr = a.w / a.n, rat = a.rn ? a.rs / a.rn : null;
+      // 개인 기록: 공격 포인트는 모든 경기, 수비 기록·패스는 확장 기록이 있는 경기만
+      const ap = (a.g + a.a) / a.n, pap = (T.g + T.a - a.g - a.a) / on;
+      const osn = T.sn - a.sn, shx = a.sn / (a.sn + K);
+      const dfg = a.sn ? a.df / a.sn : null, pdfg = osn > 0 ? (T.df - a.df) / osn : null;
+      const pp = a.pt ? a.ps / a.pt : null, ppp = T.pt - a.pt > 0 ? (T.ps - a.ps) / (T.pt - a.pt) : null;
       rows.push({
         sp_id: sp, name: nameOf.get(sp) || `#${sp}`, season: seasonOf(sp), season_img: seasonImg(sp),
         n: a.n, w: a.w, d: a.d, l: a.n - a.w - a.d, grade: a.gs / a.n,
         win_rate: wr, peer_win: pwr, win_diff: sh * (wr - pwr), adj_diff: 100 * sh * (a.adj / a.n - padj),
         rating: rat, peer_rating: prat, rating_diff: rat != null && prat != null ? sh * (rat - prat) : null,
+        gpg: a.g / a.n, apg: a.a / a.n, ap_diff: sh * (ap - pap),
+        defpg: dfg, def_diff: dfg != null && pdfg != null ? shx * (dfg - pdfg) : null, ext_n: a.sn,
+        pass_pct: pp, pass_diff: pp != null && ppp != null ? shx * (pp - ppp) * 100 : null,
         z: pwr > 0 && pwr < 1 ? (a.w - a.n * pwr) / Math.sqrt(a.n * pwr * (1 - pwr)) : 0,
       });
     }
+    composite(rows, ROLE(+p.pos));
     return { T, rows };
+  }
+
+  /* 종합 점수: 각 지표를 이 조건의 선수들 사이에서 표준화(z)한 뒤 가중 평균.
+   *  체급 보정(승리 기여) 50% + 평점 25% + 포지션 역할 기록 25%
+   *  역할 기록: 공격수=공격 포인트, 수비수=수비 기록, 미드필더=둘의 평균, 골키퍼=없음(체급 65%·평점 35%) */
+  function composite(rows, role) {
+    const sd = key => {
+      const v = rows.map(r => r[key]).filter(x => x != null);
+      if (v.length < 3) return null;
+      const m = mean(v), s = Math.sqrt(mean(v.map(x => (x - m) ** 2)));
+      return s > 1e-9 ? s : null;
+    };
+    const S = { adj: sd("adj_diff"), rat: sd("rating_diff"), ap: sd("ap_diff"), df: sd("def_diff") };
+    for (const r of rows) {
+      const parts = [];
+      if (S.adj) parts.push([r.adj_diff / S.adj, role === "gk" ? 0.65 : 0.5]);
+      if (S.rat && r.rating_diff != null) parts.push([r.rating_diff / S.rat, role === "gk" ? 0.35 : 0.25]);
+      const zap = S.ap ? r.ap_diff / S.ap : null, zdf = S.df && r.def_diff != null ? r.def_diff / S.df : null;
+      const roleZ = role === "att" ? zap : role === "def" ? (zdf ?? null)
+                  : role === "mid" ? (zap != null && zdf != null ? (zap + zdf) / 2 : zap) : null;
+      if (roleZ != null) parts.push([roleZ, 0.25]);
+      const wsum = parts.reduce((s, x) => s + x[1], 0);
+      r.score = wsum ? parts.reduce((s, x) => s + x[0] * x[1], 0) / wsum : 0;
+    }
   }
 
   const handlers = {
@@ -192,18 +233,34 @@
         const c = cards && cards.c[r.sp_id];
         if (c) r.profile = { ovr: c[0], height: c[1], weight: c[2], foot_l: c[4], foot_r: c[5], main_foot: c[8] ?? -1, pay: c[9] ?? null };
       });
+      // 팀 컬러(클럽 경력) 필터: 정확히 일치하는 클럽이 있으면 그 클럽만, 아니면 이름이 포함된 클럽들
+      const club = String(p.club || "").trim();
+      let clubOk = () => true, clubMatched = [];
+      if (club && cards && cards.clubs) {
+        const exact = cards.clubs.indexOf(club);
+        const ids = new Set(exact >= 0 ? [exact] : cards.clubs.map((c, i) => c.includes(club) ? i : -1).filter(i => i >= 0));
+        clubMatched = [...ids].map(i => cards.clubs[i]);
+        const withLoan = p.loan !== "0";
+        clubOk = sp => {
+          const c = cards.c[sp];
+          return !!c && (c[10] || []).some(v => v >= 0 ? ids.has(v) : withLoan && ids.has(-v - 1));
+        };
+      }
       // 이름 검색: 순위는 전체 기준으로 유지한 채 일치하는 선수만 보여 줌 (최소 경기 미달이면 별도 표시)
       const q = String(p.q || "").trim().toLowerCase();
-      let shown = rows.slice(0, +p.limit || 50), below = [];
+      const match = r => (!q || r.name.toLowerCase().includes(q)) && clubOk(r.sp_id);
+      let shown = q || club ? rows.filter(match) : rows;
+      shown = shown.slice(0, q ? 500 : +p.limit || 50);
+      let below = [];
       if (q) {
-        shown = rows.filter(r => r.name.toLowerCase().includes(q));
         const all = await playerStats({ ...p, min_games: 1 });
         const have = new Set(shown.map(r => r.sp_id));
-        below = all.rows.filter(r => r.name.toLowerCase().includes(q) && !have.has(r.sp_id))
+        below = all.rows.filter(r => match(r) && !have.has(r.sp_id))
           .map(r => ({ sp_id: r.sp_id, name: r.name, season: r.season, season_img: r.season_img, n: r.n }));
       }
       return { peers: { n: T.n, win_rate: T.w / T.n, rating: T.rn ? T.rs / T.rn : null, players: T.players },
-               rows: shown, total: rows.length, query: q, below_min: below };
+               rows: shown, total: rows.length, query: q, below_min: below,
+               club, club_matched: clubMatched.slice(0, 8), club_count: club ? rows.filter(r => clubOk(r.sp_id)).length : null };
     },
 
     /* 공통점 탭: 성적이 좋은 선수들이 공유하는 카드 특징 */
@@ -247,6 +304,7 @@
       const cat = [];
       cards.bodies.forEach((b, i) => cat.push([`체형: ${b}`, c => c[3] === i]));
       cat.push(["양발 (약발 5)", c => Math.min(c[4], c[5]) >= 5]);
+      cat.push(["고유 체형", c => c[11] === 1]);
       cards.traits.forEach((t, i) => cat.push([`특성: ${t}`, c => c[7].includes(i)]));
       for (const [name, f] of cat) {
         const a = pts.filter(x => f(x.c)).map(x => x.y), b = pts.filter(x => !f(x.c)).map(x => x.y);
@@ -277,6 +335,15 @@
       res.profile = res.profile.slice(0, 12);
       res.quartile = q;
       return res;
+    },
+
+    /* 팀 컬러 입력칸 자동완성용 클럽 목록 (카드가 많은 클럽 순) */
+    async "/api/clubs"() {
+      const cards = await loadCards();
+      if (!cards || !cards.clubs) return [];
+      const cnt = new Array(cards.clubs.length).fill(0);
+      for (const c of Object.values(cards.c)) for (const v of c[10] || []) cnt[v >= 0 ? v : -v - 1]++;
+      return cards.clubs.map((name, i) => [name, cnt[i]]).sort((a, b) => b[1] - a[1]).map(x => x[0]);
     },
 
     /* 이상치 탭에서 선수를 눌러 조합 분석으로 넘어갈 때 */
