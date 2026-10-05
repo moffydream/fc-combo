@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 
 from analytics import SCORE, _bucket
+from positions import formation_label
 from db import connect
 
 HERE = Path(__file__).parent
@@ -107,6 +108,66 @@ def main():
         anchor_names[sp] = names.get(sp, f"#{sp}")
         written += 1
 
+    # 포지션별 선수 성적 집계 (이상치 탐색용): (선수, 포메이션 계열, 강화) 단위
+    labels = {}
+    pos_stats = defaultdict(lambda: defaultdict(lambda: [0, 0, 0, 0, 0.0, 0.0]))  # n, w, d, rn, rsum, adj
+    for t in teams.values():
+        codes = [int(x) for x in t["f"].split("-")]
+        if sorted(t["lineup"]) != codes:
+            continue
+        lab = labels.setdefault(formation_label(t["f"]), len(labels))
+        expv = exp.get(str(_bucket(t["g"] - t["og"])))
+        if expv is None:
+            expv = 0.5
+        adj = SCORE[t["res"]] - expv
+        for c in codes:
+            sp, grade, rating = t["lineup"][c]
+            e = pos_stats[c][(sp, lab, grade)]
+            e[0] += 1
+            e[1] += t["res"] == "W"
+            e[2] += t["res"] == "D"
+            if rating:
+                e[3] += 1
+                e[4] += rating
+            e[5] += adj
+    (out / "data" / "pos").mkdir()
+    label_list = [None] * len(labels)
+    for lab, i in labels.items():
+        label_list[i] = lab
+    for c, entries in pos_stats.items():
+        rows = [[sp, lab, grade, n, w, d, rn, round(rsum * 100), round(adj * 1000)]
+                for (sp, lab, grade), (n, w, d, rn, rsum, adj) in entries.items()]
+        sps = {r[0] for r in rows}
+        dump(out / "data" / "pos" / f"{c}.json",
+             {"f": label_list, "n": {str(sp): names.get(sp, f"#{sp}") for sp in sps}, "e": rows})
+
+    # 카드 정보 (cards.py가 모은 것). 공통점 분석 탭에서 사용
+    try:
+        from cards import STATS
+        from cards import migrate
+        migrate(con)
+        card_rows = con.execute("SELECT sp_id, ovr, height, weight, body, foot_l, foot_r, stats, traits, main_foot "
+                                "FROM card_info WHERE ok = 1").fetchall()
+    except Exception:
+        card_rows = []
+    used = set()
+    for entries in pos_stats.values():
+        used.update(sp for (sp, _, _) in entries)
+    trait_names, bodies, cards_out = {}, ["마름", "보통", "건장"], {}
+    for sp, ovr, h, w, body, fl, fr, st, tr, mf in card_rows:
+        if sp not in used:
+            continue
+        st, tr = json.loads(st or "{}"), json.loads(tr or "[]")
+        cards_out[str(sp)] = [ovr, h, w, bodies.index(body) if body in bodies else -1, fl, fr,
+                              [st.get(n) for n in STATS],
+                              [trait_names.setdefault(t, len(trait_names)) for t in tr],
+                              {"L": 0, "R": 1}.get(mf, -1)]
+    tlist = [None] * len(trait_names)
+    for t, i in trait_names.items():
+        tlist[i] = t
+    if cards_out:
+        dump(out / "data" / "cards.json", {"stats": STATS, "traits": tlist, "bodies": bodies, "c": cards_out})
+
     dates = [t["date"] for t in teams.values() if t["date"]]
     dump(out / "data" / "index.json", {
         "built_at": datetime.now().isoformat(timespec="minutes"),
@@ -126,7 +187,8 @@ def main():
     shutil.copy(HERE / "static" / "engine_shard.js", out / "engine_shard.js")
     (out / ".nojekyll").write_text("")
     size = sum(f.stat().st_size for f in (out / "data").rglob("*") if f.is_file()) / 1e6
-    print(f"[site] {len(teams) // 2:,}경기, 기준 선수 파일 {written:,}개, 데이터 {size:.1f}MB → {out}")
+    print(f"[site] {len(teams) // 2:,}경기, 기준 선수 파일 {written:,}개, 카드 정보 {len(cards_out):,}장, "
+          f"데이터 {size:.1f}MB → {out}")
 
 
 if __name__ == "__main__":
