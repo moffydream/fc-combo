@@ -21,22 +21,25 @@ URL = "https://m.fconline.nexon.com/datacenter/playerinfo"
 STATS = ["속력", "가속력", "골 결정력", "슛 파워", "중거리 슛", "위치 선정", "발리슛", "페널티 킥",
          "짧은 패스", "시야", "크로스", "긴 패스", "프리킥", "커브", "드리블", "볼 컨트롤", "민첩성",
          "밸런스", "반응 속도", "대인 수비", "태클", "가로채기", "헤더", "슬라이딩 태클", "몸싸움",
-         "스태미너", "적극성", "점프", "침착성"]
+         "스태미너", "적극성", "점프", "침착성",
+         "GK 다이빙", "GK 핸들링", "GK 킥", "GK 반응속도", "GK 위치 선정"]
 POSITIONS = "GK|SW|RWB|RB|RCB|CB|LCB|LB|LWB|RDM|CDM|LDM|RM|RCM|CM|LCM|LM|RAM|CAM|LAM|RF|CF|LF|RW|RS|ST|LS|LW"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS card_info(
   sp_id INTEGER PRIMARY KEY, ok INTEGER, ovr INTEGER, main_pos TEXT, height INTEGER, weight INTEGER,
-  body TEXT, foot_l INTEGER, foot_r INTEGER, stats TEXT, traits TEXT, fetched_at REAL, main_foot TEXT);
+  body TEXT, foot_l INTEGER, foot_r INTEGER, stats TEXT, traits TEXT, fetched_at REAL, main_foot TEXT,
+  pay INTEGER);
 """
 
 
 def migrate(con):
     """이전 버전 테이블에 주발 열을 추가하고, 양발 숫자가 다른 카드는 숫자로 주발을 채운다."""
-    try:
-        con.execute("ALTER TABLE card_info ADD COLUMN main_foot TEXT")
-    except Exception:
-        pass
+    for col in ("main_foot TEXT", "pay INTEGER"):
+        try:
+            con.execute(f"ALTER TABLE card_info ADD COLUMN {col}")
+        except Exception:
+            pass
     con.execute("UPDATE card_info SET main_foot = CASE WHEN foot_l > foot_r THEN 'L' ELSE 'R' END "
                 "WHERE ok = 1 AND main_foot IS NULL AND foot_l != foot_r")
     con.commit()
@@ -79,7 +82,8 @@ def parse(page):
     start = text.find("속력")
     seg = text[start:] if start >= 0 else text
     for name in STATS:
-        sm = re.search(r"(?<!GK )" + re.escape(name) + r"\s*\n\s*(\d{1,3})\b", seg)
+        pat = (r"(?<!GK )" if not name.startswith("GK") else "") + re.escape(name) + r"\s*\n\s*(\d{1,3})\b"
+        sm = re.search(pat, seg)
         if sm:
             stats[name] = int(sm.group(1))
     out["stats"] = stats
@@ -91,7 +95,9 @@ def parse(page):
         if am and am.group(1) not in traits:
             traits.append(html.unescape(am.group(1)).strip())
     out["traits"] = traits
-    out["main_foot"] = main_foot(page, out["foot_l"], out["foot_r"])
+    out["main_foot"] = main_foot(page, out["foot_l"], out["foot_r"]) or "?"  # ?: 판단 불가 (다시 받지 않음)
+    pm = re.search(r"급여\s*[:：]?\s*\n?\s*(\d{1,2})\b", text)
+    out["pay"] = int(pm.group(1)) if pm else -1          # -1: 페이지에서 못 찾음 (다시 받지 않음)
     return out
 
 
@@ -121,16 +127,16 @@ async def main():
     cond_args = (stale, time.time() - 86400, time.time() - 7 * 86400, a.min_games)
     remaining = con.execute(
         "SELECT COUNT(*) FROM (SELECT p.sp_id FROM players p LEFT JOIN card_info c ON c.sp_id = p.sp_id "
-        "WHERE p.pos NOT IN (0, 28) AND (c.sp_id IS NULL OR c.fetched_at < ? "
-        "OR (c.ok = 0 AND c.fetched_at < ?) OR (c.ok = 1 AND c.main_foot IS NULL AND c.fetched_at < ?)) "
+        "WHERE p.pos != 28 AND (c.sp_id IS NULL OR c.fetched_at < ? "
+        "OR (c.ok = 0 AND c.fetched_at < ?) OR (c.ok = 1 AND (c.main_foot IS NULL OR c.pay IS NULL) AND c.fetched_at < ?)) "
         "GROUP BY p.sp_id HAVING COUNT(*) >= ?)", cond_args).fetchone()[0]
     print(f"[cards] 받아야 할 카드 {remaining}장 중 이번에 최대 {min(remaining, a.max)}장")
     todo = [r[0] for r in con.execute(
         "SELECT p.sp_id FROM players p LEFT JOIN card_info c ON c.sp_id = p.sp_id "
-        "WHERE p.pos NOT IN (0, 28) AND (c.sp_id IS NULL OR c.fetched_at < ? "
-        "OR (c.ok = 0 AND c.fetched_at < ?) OR (c.ok = 1 AND c.main_foot IS NULL AND c.fetched_at < ?)) "
+        "WHERE p.pos != 28 AND (c.sp_id IS NULL OR c.fetched_at < ? "
+        "OR (c.ok = 0 AND c.fetched_at < ?) OR (c.ok = 1 AND (c.main_foot IS NULL OR c.pay IS NULL) AND c.fetched_at < ?)) "
         "GROUP BY p.sp_id HAVING COUNT(*) >= ? ORDER BY COUNT(*) DESC LIMIT ?",
-        (stale, time.time() - 86400, time.time() - 7 * 86400, a.min_games, a.max))]
+        (*cond_args, a.max))]
     if not todo:
         print("[cards] 새로 받을 카드 없음")
         return
@@ -152,12 +158,12 @@ async def main():
                 streak = 0
                 if ok == 1:
                     print(f"[cards] 첫 파싱 예시 {sp}: 키 {info['height']} 몸무게 {info['weight']} {info['body']} "
-                          f"L{info['foot_l']}-R{info['foot_r']} 주발 {info['main_foot']} OVR {info['ovr']} 능력치 {len(info['stats'])}개 특성 {info['traits']}")
-                con.execute("INSERT OR REPLACE INTO card_info VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                          f"L{info['foot_l']}-R{info['foot_r']} 주발 {info['main_foot']} 급여 {info['pay']} OVR {info['ovr']} 능력치 {len(info['stats'])}개 특성 {info['traits']}")
+                con.execute("INSERT OR REPLACE INTO card_info VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                             (sp, 1, info["ovr"], info["main_pos"], info["height"], info["weight"],
                              info["body"], info["foot_l"], info["foot_r"],
                              json.dumps(info["stats"], ensure_ascii=False),
-                             json.dumps(info["traits"], ensure_ascii=False), time.time(), info["main_foot"]))
+                             json.dumps(info["traits"], ensure_ascii=False), time.time(), info["main_foot"], info["pay"]))
             else:
                 fail += 1
                 streak += 1

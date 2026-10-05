@@ -53,10 +53,13 @@ def main():
         teams[(r[0], r[1])] = {"res": r[2], "gf": r[3], "ga": r[4], "f": r[5], "g": r[6], "og": r[7],
                                "date": r[8] or "", "lineup": {}}
     for mid, side, sp, pos, grade, rating in con.execute(
-            "SELECT match_id, side, sp_id, pos, grade, rating FROM players WHERE pos NOT IN (0, 28)"):
+            "SELECT match_id, side, sp_id, pos, grade, rating FROM players WHERE pos != 28"):
         t = teams.get((mid, side))
         if t:
-            t["lineup"][pos] = (sp, grade, rating)
+            if pos == 0:
+                t["gk"] = (sp, grade, rating)      # 골키퍼는 라인업(포메이션)과 따로 보관
+            else:
+                t["lineup"][pos] = (sp, grade, rating)
 
     # 체급 기대 승점표
     agg = defaultdict(lambda: [0.0, 0])
@@ -78,7 +81,7 @@ def main():
             shards[(t["lineup"][pos][0], pos)].append((t, fi, codes, pos))
 
     names = {r[0]: r[1] for r in con.execute("SELECT sp_id, name FROM meta_player")}
-    seasons = {r[0]: r[1] for r in con.execute("SELECT season_id, label FROM meta_season")}
+    seasons = {r[0]: [r[1], r[2]] for r in con.execute("SELECT season_id, label, img FROM meta_season")}
     form_list = [None] * len(formations)
     for sig, i in formations.items():
         form_list[i] = sig
@@ -120,8 +123,10 @@ def main():
         if expv is None:
             expv = 0.5
         adj = SCORE[t["res"]] - expv
-        for c in codes:
-            sp, grade, rating = t["lineup"][c]
+        slots = [(c, t["lineup"][c]) for c in codes]
+        if t.get("gk"):
+            slots.append((0, t["gk"]))
+        for c, (sp, grade, rating) in slots:
             e = pos_stats[c][(sp, lab, grade)]
             e[0] += 1
             e[1] += t["res"] == "W"
@@ -146,7 +151,7 @@ def main():
         from cards import STATS
         from cards import migrate
         migrate(con)
-        card_rows = con.execute("SELECT sp_id, ovr, height, weight, body, foot_l, foot_r, stats, traits, main_foot "
+        card_rows = con.execute("SELECT sp_id, ovr, height, weight, body, foot_l, foot_r, stats, traits, main_foot, pay "
                                 "FROM card_info WHERE ok = 1").fetchall()
     except Exception:
         card_rows = []
@@ -154,14 +159,15 @@ def main():
     for entries in pos_stats.values():
         used.update(sp for (sp, _, _) in entries)
     trait_names, bodies, cards_out = {}, ["마름", "보통", "건장"], {}
-    for sp, ovr, h, w, body, fl, fr, st, tr, mf in card_rows:
+    for sp, ovr, h, w, body, fl, fr, st, tr, mf, pay in card_rows:
         if sp not in used:
             continue
         st, tr = json.loads(st or "{}"), json.loads(tr or "[]")
         cards_out[str(sp)] = [ovr, h, w, bodies.index(body) if body in bodies else -1, fl, fr,
                               [st.get(n) for n in STATS],
                               [trait_names.setdefault(t, len(trait_names)) for t in tr],
-                              {"L": 0, "R": 1}.get(mf, -1)]
+                              {"L": 0, "R": 1}.get(mf, -1),
+                              pay if pay is not None and pay >= 0 else None]
     tlist = [None] * len(trait_names)
     for t, i in trait_names.items():
         tlist[i] = t

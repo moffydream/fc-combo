@@ -40,7 +40,7 @@ CREATE INDEX IF NOT EXISTS ix_teams_form ON teams(formation);
 CREATE INDEX IF NOT EXISTS ix_matches_date ON matches(match_date);
 
 CREATE TABLE IF NOT EXISTS meta_player(sp_id INTEGER PRIMARY KEY, name TEXT);
-CREATE TABLE IF NOT EXISTS meta_season(season_id INTEGER PRIMARY KEY, label TEXT);
+CREATE TABLE IF NOT EXISTS meta_season(season_id INTEGER PRIMARY KEY, label TEXT, img TEXT);
 -- 몰수패·라인업 누락 등 분석에서 뺀 경기 (재조회 방지)
 CREATE TABLE IF NOT EXISTS skipped(match_id TEXT PRIMARY KEY, reason TEXT);
 -- 스노우볼 수집용: 경기 기록에서 발견한 유저와 마지막 조회 시각
@@ -63,6 +63,10 @@ def connect(path=None):
     # 이전 버전 DB 호환
     try:
         con.execute("ALTER TABLE crawl_users ADD COLUMN focus INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        con.execute("ALTER TABLE meta_season ADD COLUMN img TEXT")
     except sqlite3.OperationalError:
         pass
     # 한도 초과로 조회 실패한 경기는 다시 조회하도록 제외 목록에서 뺌

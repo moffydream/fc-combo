@@ -165,8 +165,8 @@ async def sync_meta(api, con):
                         [(x["id"], x["name"]) for x in sp])
     se = await api.get(f"{META}/seasonid.json")
     if se:
-        con.executemany("INSERT OR REPLACE INTO meta_season VALUES(?,?)",
-                        [(x["seasonId"], x["className"].split("(")[0].strip()) for x in se])
+        con.executemany("INSERT OR REPLACE INTO meta_season(season_id, label, img) VALUES(?,?,?)",
+                        [(x["seasonId"], x["className"].split("(")[0].strip(), x.get("seasonImg")) for x in se])
     pos = await api.get(f"{META}/spposition.json")
     if pos:
         for x in pos:
@@ -431,6 +431,9 @@ def prune(con, days):
 
 
 def meta_stale(con, hours):
+    # 시즌 아이콘 주소가 비어 있으면(이전 버전 DB) 바로 다시 받는다
+    if con.execute("SELECT COUNT(*) FROM meta_season WHERE img IS NULL").fetchone()[0]:
+        return True
     r = con.execute("SELECT value FROM kv WHERE key='meta_synced'").fetchone()
     return not r or time.time() - float(r[0]) > hours * 3600
 
