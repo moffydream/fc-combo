@@ -123,6 +123,10 @@ td.num{font:600 1.08rem var(--num);white-space:nowrap}
 .combo .pos{font:600 .78rem var(--num);color:var(--muted);width:2.3rem}
 .sicon{height:1.15em;width:auto;vertical-align:-.2em;border-radius:2px}
 .chk{display:flex;align-items:center;gap:.3rem;font-size:.85rem;padding-bottom:.55rem;white-space:nowrap;cursor:pointer}
+.ticon{height:1.4em;width:auto;vertical-align:-.35em;margin-right:.4rem}
+h3.tgroup{font:700 1.15rem/1.2 var(--num);margin:1.25rem 0 .3rem;display:flex;gap:.5rem;align-items:baseline}
+h3.tgroup span{font:500 .8rem var(--txt);color:var(--muted)}
+h3.tgroup.new{color:var(--magnet-ink);background:color-mix(in srgb,var(--magnet) 35%,transparent);padding:.15rem .5rem;border-radius:4px;display:inline-flex}
 .prof{font-size:.78rem;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums}
 .prof b{color:var(--ink);font-weight:600}
 .tag{font-size:.7rem;padding:.02rem .35rem;border-radius:4px;background:var(--board);color:var(--muted);border:1px solid var(--rule)}
@@ -269,6 +273,7 @@ details.help dd{margin:0}
       <dl>
         <dt>무엇을 보나</dt><dd>이 포지션에서 뛴 선수 카드들을 '동료 대비 성과'로 줄 세운 뒤, 성과가 좋은 카드들이 공통으로 가진 키·체형·능력치·특성을 찾습니다.</dd>
         <dt>OVR 영향 제거</dt><dd>OVR이 높은 카드가 잘하는 건 당연하므로, OVR로 설명되는 몫을 빼고 남은 성과로 분석합니다. 켜 두면 'OVR 대비 잘하는 카드'의 공통점을, 끄면 '그냥 잘하는 카드'의 공통점을 봅니다.</dd>
+        <dt>특성 비교</dt><dd>특성은 아래쪽 별도 표에서 모두 비교합니다. 위쪽 '성과를 가르는 특징'에는 능력치·체형·발만 들어갑니다.</dd>
         <dt>기준값</dt><dd>각 능력치마다 '이 값 이상과 미만'으로 나눴을 때 성과 차이가 가장 뚜렷한 지점을 자동으로 찾은 것입니다.</dd>
         <dt>확신도</dt><dd>수십 개 특징을 한꺼번에 검사하므로 몇 개는 우연히 뚜렷해 보일 수 있습니다. 그래서 확신도 기준을 일반보다 엄격하게 잡았습니다. '강함'이 아닌 결과는 가설로만 보세요.</dd>
         <dt>한계</dt><dd>능력치는 데이터센터의 1강·적응도 1 기준입니다. 고유 참여도와 개인기 등급은 데이터센터 페이지에서 읽을 수 없어 빠져 있습니다. 골키퍼는 GK 능력치만, 필드 포지션은 필드 능력치만 비교합니다. 상관관계이지 인과관계는 아닙니다.</dd>
@@ -666,6 +671,30 @@ function renderOutliers(d){
   });
 }
 
+/* ── 공통점 탭: 특성 비교 ── */
+function traitSection(d,fmt,conf,cls){
+  const list=d.traits||[];
+  if(!list.length) return `<h2 style="margin-top:2rem">특성 비교</h2><p class="note">비교할 만큼 여러 카드가 가진 특성이 없습니다.</p>`;
+  const row=x=>`<tr>
+    <td style="white-space:nowrap">${x.icon?`<img src="${esc(x.icon)}" alt="" class="ticon" loading="lazy" onerror="this.remove()">`:""}<b>${esc(x.name)}</b>${x.ai?` <span class="tag">AI</span>`:""}</td>
+    <td class="num">${x.n_in} / ${x.n_out}</td>
+    <td class="num ${cls(x.m_in)}">${fmt(x.m_in)}</td><td class="num ${cls(x.m_out)}">${fmt(x.m_out)}</td>
+    <td class="num ${cls(x.diff)}">${fmt(x.diff)}</td><td>${conf(x.t,Math.min(x.n_in,x.n_out)<10)}</td></tr>`;
+  const head=`<thead><tr><th>특성</th><th>보유 / 미보유 (장)</th><th>보유 평균 성과</th><th>미보유 평균 성과</th><th>차이</th><th>확신도</th></tr></thead>`;
+  const groups=d.trait_groups.length>1?["신규","기존"]:[null];
+  const blocks=groups.map(g=>{
+    const items=g?list.filter(x=>x.group===g):list;
+    if(!items.length) return "";
+    const title=g==="신규"?"신규 특성":g==="기존"?"기존 특성":"";
+    return `${title?`<h3 class="tgroup ${g==="신규"?"new":""}">${title} <span>${items.length}개</span></h3>`:""}
+      <div class="tablewrap"><table style="min-width:620px">${head}<tbody>${items.map(row).join("")}</tbody></table></div>`;
+  }).join("");
+  const other=d.trait_groups.length>1?list.filter(x=>!x.group):[];
+  return `<h2 style="margin-top:2rem">특성 비교</h2>
+    <p class="note">이 조건에서 3장 이상이 가진 특성을 모두 비교했습니다. 보유한 카드가 성과가 좋은 순서입니다. AI 표시는 능력이 아니라 AI가 그 행동을 고르는 성향을 바꾸는 특성입니다.${d.trait_groups.length>1?" 신규·기존 구분은 아이콘 형태로 자동 추정한 것이니, 아이콘 색과 다르면 알려 주세요.":" 아이콘 형태로 신규·기존을 구분하지 못해 한 표로 보여 줍니다."}</p>
+    ${blocks}${other.length?`<h3 class="tgroup">구분 불가 <span>${other.length}개</span></h3><div class="tablewrap"><table style="min-width:620px">${head}<tbody>${other.map(row).join("")}</tbody></table></div>`:""}`;
+}
+
 /* ── 공통점 탭 ── */
 const POS_ORDER=[25,24,26,21,20,22,23,27,18,17,19,14,13,15,12,16,10,9,11,3,7,2,8,5,4,6,1,0];
 function initCommon(){
@@ -724,7 +753,8 @@ function renderCommon(d){
     <tbody>${f||`<tr><td colspan="6" style="text-align:left;color:var(--muted)">뚜렷한 특징이 없습니다.</td></tr>`}</tbody></table></div>
     <h2 style="margin-top:2rem">잘하는 카드 vs 못하는 카드</h2>
     <p class="note">성과 상위 ${d.quartile}장과 하위 ${d.quartile}장의 평균을 비교했습니다. 막대는 차이의 크기(능력치 분포 대비)입니다.</p>
-    <div class="tablewrap"><table style="min-width:520px"><thead><tr><th>특징</th><th>상위 평균</th><th>하위 평균</th><th>차이</th></tr></thead><tbody>${pr}</tbody></table></div>`;
+    <div class="tablewrap"><table style="min-width:520px"><thead><tr><th>특징</th><th>상위 평균</th><th>하위 평균</th><th>차이</th></tr></thead><tbody>${pr}</tbody></table></div>
+    ${traitSection(d,fmt,conf,cls)}`;
 }
 
 drawPitch(null); loadStatus();

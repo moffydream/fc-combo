@@ -305,7 +305,6 @@
       cards.bodies.forEach((b, i) => cat.push([`체형: ${b}`, c => c[3] === i]));
       cat.push(["양발 (약발 5)", c => Math.min(c[4], c[5]) >= 5]);
       cat.push(["고유 체형", c => c[11] === 1]);
-      cards.traits.forEach((t, i) => cat.push([`특성: ${t}`, c => c[7].includes(i)]));
       for (const [name, f] of cat) {
         const a = pts.filter(x => f(x.c)).map(x => x.y), b = pts.filter(x => !f(x.c)).map(x => x.y);
         if (a.length < 5 || b.length < 5) continue;
@@ -320,6 +319,19 @@
                               m_in: mean(L), m_out: mean(R), diff: mean(L) - mean(R), t: welch(L, R) });
       }
       res.findings.sort((a, b) => Math.abs(b.t) - Math.abs(a.t));
+
+      // 특성은 별도 표: 3장 이상 보유한 특성은 모두 비교
+      const tinfo = cards.trait_info || [];
+      res.traits = [];
+      cards.traits.forEach((name, i) => {
+        const a = pts.filter(x => x.c[7].includes(i)).map(x => x.y), b = pts.filter(x => !x.c[7].includes(i)).map(x => x.y);
+        if (a.length < 3 || b.length < 3) return;
+        const [icon, ai, group] = tinfo[i] || ["", 0, ""];
+        res.traits.push({ name, icon, ai: !!ai, group: group || "", n_in: a.length, n_out: b.length,
+                          m_in: mean(a), m_out: mean(b), diff: mean(a) - mean(b), t: welch(a, b) });
+      });
+      res.traits.sort((a, b) => b.diff - a.diff);
+      res.trait_groups = [...new Set(tinfo.map(x => x[2]).filter(Boolean))];
       res.findings = res.findings.slice(0, +p.limit || 15);
 
       // 잘하는 상위 25% vs 못하는 하위 25% 평균 비교
