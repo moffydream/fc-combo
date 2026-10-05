@@ -1,0 +1,74 @@
+name: 랭커 스쿼드 수집
+
+on:
+  schedule:
+    - cron: "10 19 * * *"   # 매일 한국시간 04:10
+  workflow_dispatch:
+    inputs:
+      probe:
+        description: "점검만 하기 (1페이지 + 1명, 저장 안 함): yes 입력"
+        required: false
+        default: ""
+      pages:
+        description: "랭킹 페이지 수 (비우면 500 = 1만 명)"
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: rankers
+  cancel-in-progress: false
+
+env:
+  TZ: Asia/Seoul
+  FC_RANK_DB: state_r/rankers.db
+
+jobs:
+  rankers:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install httpx
+
+      - name: 이전 랭커 DB 복원
+        uses: actions/cache/restore@v4
+        with:
+          path: state_r
+          key: rankers-${{ github.run_id }}
+          restore-keys: rankers-
+
+      - name: 수집
+        env:
+          NEXON_API_KEYS: ${{ secrets.NEXON_API_KEYS }}
+        run: |
+          mkdir -p state_r
+          if [ "${{ inputs.probe }}" = "yes" ]; then
+            python rankers.py --probe
+          else
+            python rankers.py --pages ${{ inputs.pages || 500 }} --rps 2 --minutes 300
+          fi
+
+      - name: 랭커 DB 저장
+        if: always() && inputs.probe != 'yes' && hashFiles('state_r/rankers.db') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: state_r
+          key: rankers-${{ github.run_id }}-${{ github.run_attempt }}
+
+      - name: 오래된 랭커 캐시 정리
+        if: always()
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh cache list --repo "$GITHUB_REPOSITORY" --key rankers- --sort created_at --order desc --limit 50 --json id --jq '.[2:][].id' \
+            | xargs -r -I{} gh cache delete {} --repo "$GITHUB_REPOSITORY"
